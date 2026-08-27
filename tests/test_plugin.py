@@ -37,10 +37,11 @@ METRICS = {
 def test_render_card_green():
     """Sessions with no signals should show GREEN status."""
     result = SignalResult(signals=[], metrics=METRICS)
-    card = plugin._render_card(result, [], "coding")
+    card = plugin._render_card(result, [], "coding", "deepseek/deepseek-v4-flash")
     assert "Pulse" in card
     assert "GREEN" in card
     assert "42" in card
+    assert "deepseek" in card
 
 
 def test_render_card_red():
@@ -61,7 +62,7 @@ def test_render_card_red():
          "evidence": ["Error: timeout"]},
     ]
     result = SignalResult(signals=[], metrics=m)
-    card = plugin._render_card(result, signals_flat, "coding")
+    card = plugin._render_card(result, signals_flat, "coding", "deepseek/deepseek-v4-flash")
     assert "RED" in card
     assert "[-]" in card
     assert "correction" in card or "no, that's wrong" in card
@@ -76,7 +77,7 @@ def test_render_card_coaching_appears():
          "penalty": 8, "label": "tool error", "evidence": []},
     ]
     result = SignalResult(signals=[], metrics=METRICS)
-    card = plugin._render_card(result, signals_flat, "coding")
+    card = plugin._render_card(result, signals_flat, "coding", "test-model")
     assert "Coaching" in card
     assert "use X approach" in card
     assert "different approach" in card
@@ -85,7 +86,7 @@ def test_render_card_coaching_appears():
 def test_render_card_no_coaching_when_clean():
     """Clean sessions should show green status but no coaching section."""
     result = SignalResult(signals=[], metrics=METRICS)
-    card = plugin._render_card(result, [], "coding")
+    card = plugin._render_card(result, [], "coding", "test-model")
     assert "GREEN" in card
     assert "Coaching" not in card
 
@@ -98,7 +99,7 @@ def test_render_card_shows_evidence():
          "evidence": ["you're so lazy, do it properly"]},
     ]
     result = SignalResult(signals=[], metrics=METRICS)
-    card = plugin._render_card(result, signals_flat, "coding")
+    card = plugin._render_card(result, signals_flat, "coding", "test-model")
     assert "lazy" in card
 
 
