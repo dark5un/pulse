@@ -314,6 +314,38 @@ def test_tool_error_fired_on_genuine_failure():
     assert "tool_error" in names, "genuine error starting with 'Error:' should fire"
 
 
+def test_tool_error_not_fired_on_pyright_diagnostics():
+    """Pyright diagnostics with 'error:' mid-output should NOT fire."""
+    msgs = [
+        {"role": "user", "content": "check test"},
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"function": {"name": "terminal"}}]},
+        {"role": "user", "content": "what happened?"},
+        {"role": "assistant", "content": "let me check"},
+        {"role": "user", "content": "ok"},
+        {"role": "tool", "content": "/path/to/file.py:10:6 - warning: Import could not be resolved\n0 errors, 2 warnings\nerror: Failed to spawn: pytest\n  Caused by: No such file"},
+    ]
+    result = extract_signals(msgs, "coding")
+    names = [s.name for s in result.signals]
+    assert "tool_error" not in names, "pyright output with error mid-line should not fire"
+
+
+def test_tool_error_not_fired_on_git_commit_output():
+    """Git commit output with 'ERROR:' in the middle should NOT fire."""
+    msgs = [
+        {"role": "user", "content": "push changes"},
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"function": {"name": "terminal"}}]},
+        {"role": "user", "content": "what happened?"},
+        {"role": "assistant", "content": "let me check"},
+        {"role": "user", "content": "ok"},
+        {"role": "tool", "content": "[main abc1234] Add feature\n 1 file changed, 42 insertions(+)\nERROR: Repository not found.\nfatal: Could not read from remote repository."},
+    ]
+    result = extract_signals(msgs, "coding")
+    names = [s.name for s in result.signals]
+    assert "tool_error" not in names, "git output with ERROR: mid-output should not fire"
+
+
 def test_short_prompt_not_penalized_if_enough_context():
     """An expert developer might write short prompts in a known codebase.
     If the prompt has file paths or identifiers, don't penalize."""

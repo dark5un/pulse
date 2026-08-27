@@ -52,10 +52,13 @@ GOAL_DRIFT_KW: set[str] = {
 # ── Minimum session guard ──────────────────────────────────────────────────
 
 def _check_minimum_messages(messages: list[dict]) -> str | None:
-    """Return a skip reason if the session is too short, else None."""
-    user_turns = sum(1 for m in messages if m.get("role") == "user")
+    """Return a skip reason if the session is too short, else None.
+
+    Checks total message count, not user turns — supports continuations
+    where the user may send only 1-2 new prompts in an existing session.
+    """
     total_msgs = len(messages)
-    if user_turns < 3 or total_msgs < 5:
+    if total_msgs < 5:
         return "insufficient_data"
     return None
 
@@ -482,13 +485,15 @@ def _detect_low_diversity(messages: list[dict], task_type: str) -> list[Signal]:
 # ── Tool errors ──────────────────────────────────────────────────────────
 
 def _detect_tool_errors(messages: list[dict], task_type: str) -> list[Signal]:
-    """Detect tool result / output containing explicit errors.
+    """Detect tool outputs that are pure error responses.
 
-    Only fires on messages that are explicitly error responses, not
-    content that merely contains the word 'error' (like log lines, paths).
-    Strips JSON wrappers and checks the actual output content.
+    Only fires when the ENTIRE output is an error — not tool output that
+    happens to contain the word 'error' in passing (git commits, pytest
+    collection errors, pyright diagnostics, etc.).
 
-    Evidence shows only the first error line, not the full output.
+    A real tool error is:
+    - Starts with "Error:" or "Traceback (most recent call last):"
+    - Or is a JSON tool wrapper with an "error" key
     """
     signals: list[Signal] = []
     for msg in messages:
@@ -498,51 +503,55 @@ def _detect_tool_errors(messages: list[dict], task_type: str) -> list[Signal]:
         if not isinstance(content, str):
             continue
 
-        # Strip JSON tool result wrapper (both output and content keys)
         inner = content
-        if inner.strip().startswith("{"):
+
+        # Check if it's a structured JSON error (Hermes tool error format)
+        if isinstance(inner, str) and inner.strip().startswith("{"):
             try:
                 parsed = json.loads(inner)
                 if isinstance(parsed, dict):
+                    has_error_key = "error" in parsed and bool(parsed.get("error"))
+                    if has_error_key:
+                        signals.append(Signal(
+                            name="tool_error", target="agent", severity="warning",
+                            penalty=4,
+                            evidence=[str(parsed["error"])[:200]],
+                            label="Tool returned an explicit error",
+                        ))
+                        continue
+                    # If it has output key, unwrap and check that instead
                     inner = parsed.get("output") or parsed.get("content") or inner
-                    if not isinstance(inner, str):
-                        inner = content
             except (json.JSONDecodeError, TypeError):
                 pass
 
-        lower = inner.lower().strip()
-
-        # Skip if output starts with clear success indicators
-        if lower.startswith(("all checks passed", "ok", "done", "pass", "---")):
+        if not isinstance(inner, str):
             continue
 
-        # Find the first line that looks like an error
-        first_error_line = ""
-        for line in inner.split("\n"):
-            stripped = line.strip().lower()
-            if stripped.startswith(("error:", "traceback")):
-                first_error_line = line.strip()
-                break
+        inner = inner.strip()
 
-        if not first_error_line:
+        # Only fire if the ENTIRE output is a traceback or starts with "Error:"
+        # — not output that mentions error in passing
+        first_line = inner.split("\n")[0].strip()
+
+        if first_line.startswith("Traceback (most recent call last):"):
+            signals.append(Signal(
+                name="tool_error", target="agent", severity="warning",
+                penalty=6,
+                evidence=[first_line],
+                label="Python traceback — tool call failed",
+            ))
             continue
 
-        # Raise threshold for long output (pytest runs, git output, etc.)
-        # — genuine tool errors are usually short
-        if len(inner) > 1500:
+        if first_line.startswith("Error:") or first_line.startswith("ERROR:"):
+            signals.append(Signal(
+                name="tool_error", target="agent", severity="warning",
+                penalty=6,
+                evidence=[first_line],
+                label="Tool returned an explicit error",
+            ))
             continue
 
-        # Lower penalty for brainstorm/research where trial-and-error is normal
-        penalty = 4 if task_type in NON_ANALYTICAL else 8
-
-        signals.append(Signal(
-            name="tool_error", target="agent", severity="warning",
-            penalty=penalty,
-            evidence=[first_error_line],
-            label="Tool returned an explicit error",
-        ))
-
-    # Cap total penalty from tool errors to avoid dominating the score
+    # Cap total penalty from tool errors
     total_penalty = sum(s.penalty for s in signals)
     if total_penalty > 12:
         ratio = 12 / total_penalty

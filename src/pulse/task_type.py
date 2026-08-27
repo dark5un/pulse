@@ -37,24 +37,25 @@ def detect_task_type(messages: list[dict]) -> str:
     all_user = " ".join(user_texts).lower()
     tool_set = set(tool_names)
 
+    # Coding: reads + writes, terminal, file ops (most specific — check FIRST)
+    if WRITE_TOOLS & tool_set:
+        return TASK_CODING
+
+    # Research: heavy web_search / web_extract, no edits
+    if tool_set & RESEARCH_TOOLS and not (tool_set & WRITE_TOOLS):
+        return TASK_RESEARCH
+
+    # Writing: only write_file, no exec
+    if "write_file" in tool_set and "terminal" not in tool_set:
+        return TASK_WRITING
+
     # Brainstorm: high question density, few writes, research tools
+    # Only classify as brainstorm after coding/research/writing ruled out
     q_marks = all_user.count("?")
     q_density = q_marks / max(len(all_user), 1)
     if q_density > 0.05 and (tool_set & RESEARCH_TOOLS):
         return TASK_BRAINSTORM
     if q_marks >= 4 and len(user_texts) >= 3:
         return TASK_BRAINSTORM
-
-    # Research: heavy web_search / web_extract, no edits
-    if tool_set & RESEARCH_TOOLS and not (tool_set & WRITE_TOOLS):
-        return TASK_RESEARCH
-
-    # Coding: reads + writes, terminal, file ops
-    if WRITE_TOOLS & tool_set:
-        return TASK_CODING
-
-    # Writing: only write_file, no exec
-    if "write_file" in tool_set and "terminal" not in tool_set:
-        return TASK_WRITING
 
     return TASK_CHAT
