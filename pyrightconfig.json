@@ -1,0 +1,8 @@
+{
+  "include": ["src", "tests"],
+  "extraPaths": [".venv/lib/python3.12/site-packages"],
+  "typeCheckingMode": "basic",
+  "reportMissingImports": "warning",
+  "reportIndexIssue": "error",
+  "reportUndefinedVariable": "error"
+}

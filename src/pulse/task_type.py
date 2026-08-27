@@ -1,0 +1,55 @@
+"""Detect conversation task type from message patterns.
+
+Every detector that relies on task-type context must call this
+consistently, not duplicate the heuristic.
+"""
+
+
+READ_TOOLS = {"read_file", "search_files", "web_extract", "web_search", "vision_analyze"}
+WRITE_TOOLS = {"write_file", "patch"}
+RESEARCH_TOOLS = {"web_search", "web_extract", "session_search", "browser_exec"}
+
+
+def detect_task_type(messages: list[dict]) -> str:
+    """Classify a conversation as brainstorm, coding, research, writing, or chat.
+
+    Returns one of: "brainstorm", "coding", "research", "writing", "chat".
+    """
+    user_texts = [m.get("content", "") for m in messages if m.get("role") == "user"]
+    tool_names: list[str] = []
+    for m in messages:
+        tcs = m.get("tool_calls") or []
+        if isinstance(tcs, dict):
+            tcs = [tcs]
+        for tc in tcs:
+            if not isinstance(tc, dict):
+                continue
+            fn = tc.get("function", tc)
+            name = fn.get("name", "") if isinstance(fn, dict) else ""
+            if name:
+                tool_names.append(name)
+
+    all_user = " ".join(user_texts).lower()
+    tool_set = set(tool_names)
+
+    # Brainstorm: high question density, few writes, research tools
+    q_marks = all_user.count("?")
+    q_density = q_marks / max(len(all_user), 1)
+    if q_density > 0.05 and (tool_set & RESEARCH_TOOLS):
+        return "brainstorm"
+    if q_marks >= 4 and len(user_texts) >= 3:
+        return "brainstorm"
+
+    # Research: heavy web_search / web_extract, no edits
+    if tool_set & RESEARCH_TOOLS and not (tool_set & WRITE_TOOLS):
+        return "research"
+
+    # Coding: reads + writes, terminal, file ops
+    if WRITE_TOOLS & tool_set:
+        return "coding"
+
+    # Writing: only write_file, no exec
+    if "write_file" in tool_set and "terminal" not in tool_set:
+        return "writing"
+
+    return "chat"
