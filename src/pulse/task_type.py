@@ -4,16 +4,21 @@ Every detector that relies on task-type context must call this
 consistently, not duplicate the heuristic.
 """
 
-
-READ_TOOLS = {"read_file", "search_files", "web_extract", "web_search", "vision_analyze"}
-WRITE_TOOLS = {"write_file", "patch"}
-RESEARCH_TOOLS = {"web_search", "web_extract", "session_search", "browser_exec"}
+from pulse.constants import (
+    RESEARCH_TOOLS,
+    TASK_BRAINSTORM,
+    TASK_CHAT,
+    TASK_CODING,
+    TASK_RESEARCH,
+    TASK_WRITING,
+    WRITE_TOOLS,
+)
 
 
 def detect_task_type(messages: list[dict]) -> str:
     """Classify a conversation as brainstorm, coding, research, writing, or chat.
 
-    Returns one of: "brainstorm", "coding", "research", "writing", "chat".
+    Returns one of the TASK_* constants from pulse.constants.
     """
     user_texts = [m.get("content", "") for m in messages if m.get("role") == "user"]
     tool_names: list[str] = []
@@ -36,20 +41,20 @@ def detect_task_type(messages: list[dict]) -> str:
     q_marks = all_user.count("?")
     q_density = q_marks / max(len(all_user), 1)
     if q_density > 0.05 and (tool_set & RESEARCH_TOOLS):
-        return "brainstorm"
+        return TASK_BRAINSTORM
     if q_marks >= 4 and len(user_texts) >= 3:
-        return "brainstorm"
+        return TASK_BRAINSTORM
 
     # Research: heavy web_search / web_extract, no edits
     if tool_set & RESEARCH_TOOLS and not (tool_set & WRITE_TOOLS):
-        return "research"
+        return TASK_RESEARCH
 
     # Coding: reads + writes, terminal, file ops
     if WRITE_TOOLS & tool_set:
-        return "coding"
+        return TASK_CODING
 
     # Writing: only write_file, no exec
     if "write_file" in tool_set and "terminal" not in tool_set:
-        return "writing"
+        return TASK_WRITING
 
-    return "chat"
+    return TASK_CHAT

@@ -7,6 +7,9 @@ If a test fails, either the signal detector is wrong OR the contract has changed
 """
 
 
+from pulse.constants import (
+    TASK_BRAINSTORM,
+)
 from pulse.signals import extract_signals
 from pulse.task_type import detect_task_type
 
@@ -18,7 +21,7 @@ def test_detect_brainstorm_from_high_question_density():
         {"role": "user", "content": "could we do X? or maybe Y? what do you think?"},
         {"role": "user", "content": "should we use approach A B or C?"},
     ]
-    assert detect_task_type(msgs) == "brainstorm"
+    assert detect_task_type(msgs) == TASK_BRAINSTORM
 
 
 def test_detect_coding_from_writes():
@@ -134,9 +137,9 @@ def test_frustration_detected_in_multiple_turns():
     msgs = [
         {"role": "user", "content": "build a search feature"},
         {"role": "assistant", "content": "here's code"},
-        {"role": "user", "content": "stop, this is wrong again"},
-        {"role": "assistant", "content": "I'll fix it"},
-        {"role": "user", "content": "you're not listening either"},
+        {"role": "user", "content": "you're so lazy, do it properly"},
+                    {"role": "assistant", "content": "I'll fix it"},
+                    {"role": "user", "content": "you're not listening either"},
     ]
     result = extract_signals(msgs, "coding")
     names = [s.name for s in result.signals]

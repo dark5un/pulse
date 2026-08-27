@@ -7,8 +7,16 @@ signal list out. No side effects, no state.
 import re
 from collections import Counter
 
+from pulse.constants import (
+    NON_ANALYTICAL,
+    READ_TOOLS,
+    TASK_BRAINSTORM,
+    TASK_CODING,
+    TASK_WRITING,
+    WRITE_TOOLS,
+)
 from pulse.models import Signal, SignalResult
-from pulse.task_type import READ_TOOLS, WRITE_TOOLS, detect_task_type
+from pulse.task_type import detect_task_type
 
 # ── Keyword sets (litmus-tested against known transcripts) ─────────────────
 
@@ -18,8 +26,9 @@ CORRECTION_STARTS: set[str] = {
 }
 
 FRUSTRATION_KW: set[str] = {
-    "stop", "lazy", "sloppy", "you're not listening",
-    "ignoring", "still wrong", "are you kidding",
+    "lazy", "sloppy", "you're not listening",
+    "ignoring", "are you kidding", "are you serious",
+    "read the file", "did you even read",
 }
 
 REASONING_LOOP_KW: set[str] = {
@@ -60,7 +69,7 @@ def _detect_correction_chain(messages: list[dict], task_type: str) -> list[Signa
             "no" mid-sentence → does not fire.
             Brainstorm session → does not fire.
     """
-    if task_type == "brainstorm":
+    if task_type == TASK_BRAINSTORM:
         return []
 
     signals: list[Signal] = []
@@ -120,9 +129,10 @@ def _detect_correction_chain(messages: list[dict], task_type: str) -> list[Signa
 def _detect_frustration(messages: list[dict], task_type: str) -> list[Signal]:
     """Detect frustration keywords in user turns.
 
-    Litmus: "stop, this is wrong again" + "you're still not listening" → fires.
+    Litmus: "stop, this is wrong again" + "you're not listening either" → fires.
             "this is not correct, use library X" → does not fire.
             Single "wrong" in a long calm message → does not fire.
+            System messages (context compaction) are excluded.
     """
     signals: list[Signal] = []
     frustration_turns: list[int] = []
@@ -132,6 +142,9 @@ def _detect_frustration(messages: list[dict], task_type: str) -> list[Signal]:
             continue
         content = msg.get("content", "")
         if not isinstance(content, str):
+            continue
+        # Skip Hermes system messages
+        if content.startswith(("[CONTEXT COMPACTION", "[SYSTEM")):
             continue
         lower = content.lower()
         hits = sum(1 for kw in FRUSTRATION_KW if kw in lower)
@@ -162,7 +175,7 @@ def _detect_goal_drift(messages: list[dict], task_type: str) -> list[Signal]:
 
     Only fires in coding/writing sessions, not brainstorm or research.
     """
-    if task_type in ("brainstorm", "research"):
+    if task_type in NON_ANALYTICAL:
         return []
 
     signals: list[Signal] = []
@@ -229,7 +242,7 @@ def _detect_vague_prompts(messages: list[dict], task_type: str) -> list[Signal]:
     Does NOT fire on chat or brainstorm sessions.
     Does NOT fire when the single prompt has file path terms regardless of length.
     """
-    if task_type not in ("coding", "writing"):
+    if task_type not in (TASK_CODING, TASK_WRITING):
         return []
 
     user_texts = [
@@ -261,12 +274,16 @@ def _detect_vague_prompts(messages: list[dict], task_type: str) -> list[Signal]:
 
 # ── Reasoning loop ───────────────────────────────────────────────────────
 
-def _detect_reasoning_loops(messages: list[dict]) -> list[Signal]:
+def _detect_reasoning_loops(messages: list[dict], task_type: str) -> list[Signal]:
     """Detect agent self-correcting in place.
+
+    Does not fire on brainstorm sessions where reflective language is natural.
 
     Litmus: 3+ "oh wait / actually / let me reconsider" in one turn → fires.
             Single "actually, the answer is 42" → does not fire.
     """
+    if task_type == TASK_BRAINSTORM:
+        return []
     signals: list[Signal] = []
 
     for msg in messages:
@@ -292,8 +309,15 @@ def _detect_reasoning_loops(messages: list[dict]) -> list[Signal]:
 
 # ── Premature stopping ───────────────────────────────────────────────────
 
-def _detect_premature_stop(messages: list[dict]) -> list[Signal]:
-    """Detect agent asking to stop mid-task."""
+def _detect_premature_stop(messages: list[dict], task_type: str) -> list[Signal]:
+    """Detect agent asking to stop mid-task.
+
+    Does not fire on brainstorm or research sessions,
+    where reflective language is natural.
+    """
+    if task_type in NON_ANALYTICAL:
+        return []
+
     signals: list[Signal] = []
 
     for msg in messages:
@@ -319,8 +343,17 @@ def _detect_premature_stop(messages: list[dict]) -> list[Signal]:
 
 # ── Tool repetition ──────────────────────────────────────────────────────
 
-def _detect_tool_repetition(messages: list[dict]) -> list[Signal]:
-    """Detect same tool called 4+ times in the last 10 calls."""
+def _detect_tool_repetition(messages: list[dict], task_type: str) -> list[Signal]:
+    """Detect same tool called 4+ times in the last 10 calls.
+
+    Only considers coding-relevant tools (reads, writes, terminal).
+    Does not fire on brainstorm/research where web_search repetition is normal.
+    """
+    if task_type in NON_ANALYTICAL:
+        return []
+
+    REPETITION_TOOLS = READ_TOOLS | WRITE_TOOLS | {"terminal", "execute_code"}
+
     tool_sequence: list[str] = []
     for msg in messages:
         if msg.get("role") != "assistant":
@@ -333,7 +366,7 @@ def _detect_tool_repetition(messages: list[dict]) -> list[Signal]:
                 continue
             fn = tc.get("function", tc)
             name = fn.get("name", "") if isinstance(fn, dict) else ""
-            if name:
+            if name and name in REPETITION_TOOLS:
                 tool_sequence.append(name)
 
     if len(tool_sequence) < 4:
@@ -361,8 +394,14 @@ def _detect_tool_repetition(messages: list[dict]) -> list[Signal]:
 
 # ── Read:Edit ratio ───────────────────────────────────────────────────────
 
-def _detect_read_edit_ratio(messages: list[dict]) -> list[Signal]:
-    """Detect shallow (low) Read:Edit ratio."""
+def _detect_read_edit_ratio(messages: list[dict], task_type: str) -> list[Signal]:
+    """Detect shallow (low) Read:Edit ratio.
+
+    Only fires on coding sessions where research depth is meaningful.
+    Brainstorm, research, and writing sessions naturally have low Read:Edit.
+    """
+    if task_type != TASK_CODING:
+        return []
     reads = 0
     edits = 0
     for msg in messages:
@@ -406,8 +445,14 @@ def _detect_read_edit_ratio(messages: list[dict]) -> list[Signal]:
 
 # ── Low diversity ────────────────────────────────────────────────────────
 
-def _detect_low_diversity(messages: list[dict]) -> list[Signal]:
-    """Detect narrow tool usage."""
+def _detect_low_diversity(messages: list[dict], task_type: str) -> list[Signal]:
+    """Detect narrow tool usage.
+
+    Only fires on coding sessions where tool diversity matters.
+    Research/brainstorm sessions naturally use 1-2 tools (web_search, web_extract).
+    """
+    if task_type != TASK_CODING:
+        return []
     tool_names: set[str] = set()
     call_count = 0
     for msg in messages:
@@ -436,7 +481,11 @@ def _detect_low_diversity(messages: list[dict]) -> list[Signal]:
 # ── Tool errors ──────────────────────────────────────────────────────────
 
 def _detect_tool_errors(messages: list[dict]) -> list[Signal]:
-    """Detect tool result / output containing errors."""
+    """Detect tool result / output containing explicit errors.
+
+    Only fires on messages that are explicitly error responses, not
+    content that merely contains the word 'error' (like log lines, paths).
+    """
     signals: list[Signal] = []
     for msg in messages:
         if msg.get("role") not in ("assistant", "tool"):
@@ -444,13 +493,19 @@ def _detect_tool_errors(messages: list[dict]) -> list[Signal]:
         content = msg.get("content", "")
         if not isinstance(content, str):
             continue
-        lower = content.lower()
-        if "error:" in lower or "traceback" in lower:
+        lower = content.lower().strip()
+        # Only fire if the content IS an error (starts with error/traceback)
+        # and is short enough to be an error message, not a large log
+        is_explicit_error = (
+            lower.startswith(("error:", "error ", "traceback"))
+            or "error:" in lower[:50]
+        ) and len(content) < 500
+        if is_explicit_error:
             signals.append(Signal(
                 name="tool_error", target="agent", severity="warning",
                 penalty=8,
                 evidence=[content[:150]],
-                label="Tool returned an error",
+                label="Tool returned an explicit error",
             ))
     return signals
 
@@ -469,13 +524,19 @@ def _detect_shrinking_prompts(messages: list[dict]) -> list[Signal]:
 
     first_len = len(user_texts[0])
     last_len = len(user_texts[-1])
-    if last_len < first_len * 0.3 and first_len > 100:
-        return [Signal(
-            name="shrinking_prompts", target="user", severity="info",
-            penalty=5,
-            evidence=[user_texts[0][:80], user_texts[-1][:80]],
-            label="Prompts getting shorter — possible disengagement",
-        )]
+    if last_len < first_len * 0.15 and first_len > 200:
+        # Only fire if the last prompt is ALSO vague (no file paths, identifiers)
+        last_has_specifics = bool(
+            re.findall(r"[\w./-]+\.\w{2,4}", user_texts[-1])
+            or re.findall(r"\b\d{3,}\b", user_texts[-1])
+        )
+        if not last_has_specifics:
+            return [Signal(
+                name="shrinking_prompts", target="user", severity="info",
+                penalty=5,
+                evidence=[user_texts[0][:80], user_texts[-1][:80]],
+                label="Prompts getting shorter — possible disengagement",
+            )]
     return []
 
 
