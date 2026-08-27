@@ -7,21 +7,16 @@ without needing a live Hermes session or state.db.
 import sys
 from pathlib import Path
 
-# Add plugin dir to path
-plugin_dir = Path.home() / ".hermes" / "plugins" / "pulse"
-sys.path.insert(0, str(plugin_dir))
-
 # Add pulse project src to path
-pulse_src = Path.home() / "workspace" / "pulse" / "src"
+pulse_src = Path(__file__).resolve().parent.parent / "src"
 sys.path.insert(0, str(pulse_src))
 
 # Import the plugin module — this is what we're testing
-import importlib
-
+from pulse import plugin as plugin_module
 from pulse.models import Signal, SignalResult
 from pulse.signals import extract_signals
 
-plugin = importlib.import_module("__init__")
+plugin = plugin_module
 
 # Shared test metrics
 METRICS = {

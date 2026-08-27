@@ -17,7 +17,7 @@ import sys
 import time
 from pathlib import Path
 
-pulse_src = Path.home() / "workspace" / "pulse" / "src"
+pulse_src = Path(__file__).resolve().parent.parent.parent / "src"
 if str(pulse_src) not in sys.path:
     sys.path.insert(0, str(pulse_src))
 
@@ -263,7 +263,7 @@ def _handle_trends() -> str:
         model_data[m].append(r)
 
     if len(model_data) > 1:
-        lines.append(f"\n── By Model ────────────────────────────────────")
+        lines.append("\n── By Model ────────────────────────────────────")
         for model, mrows in sorted(model_data.items(), key=lambda x: len(x[1]), reverse=True):
             m_short = _shorten_model(model)
             m_avg = sum(r["overall_score"] for r in mrows) / len(mrows)
@@ -289,11 +289,10 @@ def _handle_trends() -> str:
         for name, count in sig_counter.most_common(5):
             lines.append(f"    {name}: {count}x")
 
-    lines.append(f"\n  Session details:")
+    lines.append("\n  Session details:")
     for r in rows[:10]:
         import datetime
         ts = datetime.datetime.fromtimestamp(r["run_at"], tz=datetime.UTC).strftime("%m-%d %H:%M")
-        sid_short = r["session_id"][-12:]
         model_short = _shorten_model(r["model"] or "?")
         lines.append(f"    {ts}  {model_short:20s}  score={r['overall_score']}  [{r['status']}]")
 
