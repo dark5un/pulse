@@ -481,12 +481,14 @@ def _detect_low_diversity(messages: list[dict], task_type: str) -> list[Signal]:
 
 # ── Tool errors ──────────────────────────────────────────────────────────
 
-def _detect_tool_errors(messages: list[dict]) -> list[Signal]:
+def _detect_tool_errors(messages: list[dict], task_type: str) -> list[Signal]:
     """Detect tool result / output containing explicit errors.
 
     Only fires on messages that are explicitly error responses, not
     content that merely contains the word 'error' (like log lines, paths).
     Strips JSON wrappers and checks the actual output content.
+
+    Evidence shows only the first error line, not the full output.
     """
     signals: list[Signal] = []
     for msg in messages:
@@ -514,25 +516,39 @@ def _detect_tool_errors(messages: list[dict]) -> list[Signal]:
         if lower.startswith(("all checks passed", "ok", "done", "pass", "---")):
             continue
 
-        # Only fire if the content IS an error (starts with error: or traceback)
-        # and is short enough to be an error message, not a large log
-        # "Error is:" descriptions are NOT errors — they describe a situation
-        is_explicit_error = False
+        # Find the first line that looks like an error
+        first_error_line = ""
         for line in inner.split("\n"):
             stripped = line.strip().lower()
             if stripped.startswith(("error:", "traceback")):
-                is_explicit_error = True
+                first_error_line = line.strip()
                 break
 
-        is_explicit_error = is_explicit_error and len(inner) < 1500
+        if not first_error_line:
+            continue
 
-        if is_explicit_error:
-            signals.append(Signal(
-                name="tool_error", target="agent", severity="warning",
-                penalty=8,
-                evidence=[inner],
-                label="Tool returned an explicit error",
-            ))
+        # Raise threshold for long output (pytest runs, git output, etc.)
+        # — genuine tool errors are usually short
+        if len(inner) > 1500:
+            continue
+
+        # Lower penalty for brainstorm/research where trial-and-error is normal
+        penalty = 4 if task_type in NON_ANALYTICAL else 8
+
+        signals.append(Signal(
+            name="tool_error", target="agent", severity="warning",
+            penalty=penalty,
+            evidence=[first_error_line],
+            label="Tool returned an explicit error",
+        ))
+
+    # Cap total penalty from tool errors to avoid dominating the score
+    total_penalty = sum(s.penalty for s in signals)
+    if total_penalty > 12:
+        ratio = 12 / total_penalty
+        for s in signals:
+            s.penalty = round(s.penalty * ratio, 1)
+
     return signals
 
 
