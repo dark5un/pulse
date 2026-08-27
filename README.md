@@ -85,3 +85,7 @@ pyright src/pulse/ tests/     # Type check
 ## License
 
 MIT
+
+---
+
+**This is the first iteration of many.** Every signal is a heuristic, every weight is a starting guess, every recommendation is provisional. The system learns from feedback — tell it when it's wrong with `/pulse not-useful`. The aim is for Pulse to become more clever over time: to recognise failure modes before they compound, to build a personal model of how you work, and to suggest what to do differently next time. The current codebase is step one.
