@@ -99,16 +99,78 @@ def main():
         }
         print(json.dumps(output, indent=2))
     else:
-        print(f"Task type: {task_type}")
-        print(f"Signals: {len(result.signals)}")
-        for s in result.signals:
-            penalty = f" -{s.penalty}" if s.penalty > 0 else ""
-            print(f"  [{s.target.upper():5s}] {s.name}{penalty}")
-            for e in s.evidence[:1]:
-                print(f"         \"{e[:80]}\"")
-        print(f"Metrics: {result.metrics['total_turns']} turns, {result.metrics['total_tokens']} tok est, "
-              f"Read:Edit={result.metrics['read_edit_ratio']}, "
-              f"{result.metrics['tool_call_count']} tool calls")
+        print(render_card(result, task_type))
+
+
+def render_card(result, task_type: str) -> str:
+    """Render a human-readable pulse card for in-session display."""
+
+    user_signals = [s for s in result.signals if s.target == "user"]
+    agent_signals = [s for s in result.signals if s.target == "agent"]
+    all_signals = user_signals + agent_signals
+    # Calculate overall status
+    total_penalty = sum(s.penalty for s in all_signals)
+    if total_penalty == 0:
+        status, status_line = "GREEN", "Session looks productive"
+    elif total_penalty <= 15:
+        status, status_line = "GREEN", "Minor signals, nothing critical"
+    elif total_penalty <= 30:
+        status, status_line = "YELLOW", "Some issues detected"
+    else:
+        status, status_line = "RED", "Significant problems found"
+
+    metrics = result.metrics
+    lines = []
+    lines.append("")
+    lines.append("  ╭─ Pulse ─────────────────────────────────────────────╮")
+    lines.append(f"  │  {metrics['total_turns']:>3} turns  │  ~{metrics['total_tokens']:,} tokens  │  {metrics['tool_call_count']:>3} tool calls  │")
+    lines.append(f"  │  Type: {task_type:<12}  Status: {status:<5}             │")
+    lines.append(f"  │  {status_line:<52}│")
+
+    if all_signals:
+        lines.append("  ├─ Signals ────────────────────────────────────────────┤")
+        for s in all_signals[:8]:
+            side = "YOU" if s.target == "user" else "AGT"
+            tag = f"{'▶' if s.penalty > 0 else '✓'}"
+            evidence_str = ""
+            if s.evidence:
+                e = s.evidence[0].replace("\n", " ")[:100]
+                evidence_str = f"\n  │    {e}"
+            lines.append(f"  │  {tag} {side}  {s.label[:48]:48s}{evidence_str}")
+
+    if result.signals:
+        lines.append("  ├─ Coaching ───────────────────────────────────────────┤")
+        coaching_shown = 0
+        for s in user_signals[:2]:
+            if s.name == "vague_prompts" and coaching_shown < 2:
+                lines.append("  │  ▶ Try adding file paths, constraints, or expected format│")
+                coaching_shown += 1
+            elif s.name == "correction_chain" and coaching_shown < 2:
+                lines.append("  │  ▶ Instead of 'no', say: 'use X approach because Y'    │")
+                coaching_shown += 1
+            elif s.name == "frustration" and coaching_shown < 2:
+                lines.append("  │  ▶ Specific direction beats frustration               │")
+                coaching_shown += 1
+        for s in agent_signals[:2]:
+            if s.name == "reasoning_loop" and coaching_shown < 2:
+                lines.append("  │  ▶ Tell agent: 'proceed with X, don't reconsider'     │")
+                coaching_shown += 1
+            elif s.name == "tool_repetition" and coaching_shown < 2:
+                lines.append("  │  ▶ Tell agent: 'use cached results, don't re-fetch'    │")
+                coaching_shown += 1
+            elif s.name == "tool_error" and coaching_shown < 2:
+                lines.append("  │  ▶ Agent hit tool errors — suggest a different approach│")
+                coaching_shown += 1
+            elif s.name == "shallow_read" and coaching_shown < 2:
+                lines.append("  │  ▶ Ask agent to 'read the relevant files first'       │")
+                coaching_shown += 1
+        if coaching_shown == 0:
+            lines.append("  │  Keep doing what you're doing — no coaching needed ✓  │")
+
+    lines.append("  ╰─────────────────────────────────────────────────────╯")
+    lines.append("")
+
+    return "\n".join(lines)
 
 
 if __name__ == "__main__":
