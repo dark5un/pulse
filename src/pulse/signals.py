@@ -496,13 +496,15 @@ def _detect_tool_errors(messages: list[dict]) -> list[Signal]:
         if not isinstance(content, str):
             continue
 
-        # Strip JSON tool result wrapper
+        # Strip JSON tool result wrapper (both output and content keys)
         inner = content
         if inner.strip().startswith("{"):
             try:
                 parsed = json.loads(inner)
-                if isinstance(parsed, dict) and "output" in parsed:
-                    inner = parsed["output"]
+                if isinstance(parsed, dict):
+                    inner = parsed.get("output") or parsed.get("content") or inner
+                    if not isinstance(inner, str):
+                        inner = content
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -512,12 +514,17 @@ def _detect_tool_errors(messages: list[dict]) -> list[Signal]:
         if lower.startswith(("all checks passed", "ok", "done", "pass", "---")):
             continue
 
-        # Only fire if the content IS an error (starts with error/traceback)
+        # Only fire if the content IS an error (starts with error: or traceback)
         # and is short enough to be an error message, not a large log
-        is_explicit_error = (
-            lower.startswith(("error:", "error ", "traceback"))
-            or "error:" in lower[:50]
-        ) and len(inner) < 500
+        # "Error is:" descriptions are NOT errors — they describe a situation
+        is_explicit_error = False
+        for line in inner.split("\n"):
+            stripped = line.strip().lower()
+            if stripped.startswith(("error:", "traceback")):
+                is_explicit_error = True
+                break
+
+        is_explicit_error = is_explicit_error and len(inner) < 1500
 
         if is_explicit_error:
             signals.append(Signal(

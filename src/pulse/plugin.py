@@ -197,24 +197,24 @@ def _render_card(result, signals_flat: list[dict], task_type: str, model: str) -
 
     if signals_flat:
         lines.append("── Coaching ──────────────────────────────────")
-        n = 0
+        shown = set()
         for s in user_signals[:2]:
-            if s["name"] == "vague_prompts" and n < 2:
-                lines.append("  Try adding file paths, constraints, or expected format"); n += 1
-            elif s["name"] == "correction_chain" and n < 2:
-                lines.append("  Instead of 'no', say: 'use X approach because Y'"); n += 1
-            elif s["name"] == "frustration" and n < 2:
-                lines.append("  Specific direction beats frustration every time"); n += 1
-        for s in agent_signals[:2]:
-            if s["name"] == "reasoning_loop" and n < 2:
-                lines.append("  Tell agent: 'proceed with X, don't reconsider'"); n += 1
-            elif s["name"] == "tool_repetition" and n < 2:
-                lines.append("  Tell agent: 'use cached results, don't re-fetch'"); n += 1
-            elif s["name"] == "tool_error" and n < 2:
-                lines.append("  Agent hit tool errors — suggest a different approach"); n += 1
-            elif s["name"] == "shallow_read" and n < 2:
-                lines.append("  Ask agent to 'read the relevant files first'"); n += 1
-        if n == 0:
+            if s["name"] == "vague_prompts" and "vague" not in shown:
+                lines.append("  Try adding file paths, constraints, or expected format"); shown.add("vague")
+            elif s["name"] == "correction_chain" and "chain" not in shown:
+                lines.append("  Instead of 'no', say: 'use X approach because Y'"); shown.add("chain")
+            elif s["name"] == "frustration" and "frustration" not in shown:
+                lines.append("  Specific direction beats frustration every time"); shown.add("frustration")
+        for s in agent_signals[:3]:
+            if s["name"] == "reasoning_loop" and "loop" not in shown:
+                lines.append("  Tell agent: 'proceed with X, don't reconsider'"); shown.add("loop")
+            elif s["name"] == "tool_repetition" and "repetition" not in shown:
+                lines.append("  Tell agent: 'use cached results, don't re-fetch'"); shown.add("repetition")
+            elif s["name"] == "tool_error" and "tooldown" not in shown:
+                lines.append("  Agent hit tool errors — suggest a different approach"); shown.add("tooldown")
+            elif s["name"] == "shallow_read" and "readdepth" not in shown:
+                lines.append("  Ask agent to 'read the relevant files first'"); shown.add("readdepth")
+        if not shown:
             lines.append("  Keep doing what you're doing")
 
     lines.append("── Feedback ───────────────────────────────────")
