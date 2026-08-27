@@ -1,5 +1,7 @@
 # Pulse — Session Health Monitor for AI Conversations
 
+![Pulse hero](assets/pulse-hero.png)
+
 Analyze your Hermes Agent conversations with evidence-based signals that attribute session quality to the human, the agent, or systemic issues. Tracks trends across sessions, compares model performance, and learns from your feedback.
 
 ## What it does
