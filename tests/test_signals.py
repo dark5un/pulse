@@ -282,6 +282,38 @@ def test_vague_prompts_not_flagged_on_specific_code_requests():
     assert "vague_prompts" not in names
 
 
+def test_tool_error_not_fired_on_successful_output():
+    """'All checks passed' followed by an 'error:' later should NOT fire."""
+    msgs = [
+        {"role": "user", "content": "run the tests"},
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"function": {"name": "terminal"}}]},
+        {"role": "user", "content": "what happened?"},
+        {"role": "assistant", "content": "let me check"},
+        {"role": "user", "content": "ok"},
+        {"role": "tool", "content": "All checks passed!\n---\nerror: Failed to spawn: pytest\n  Caused by: No such file or directory"},
+    ]
+    result = extract_signals(msgs, "coding")
+    names = [s.name for s in result.signals]
+    assert "tool_error" not in names, "successful output with 'error:' in middle should not fire"
+
+
+def test_tool_error_fired_on_genuine_failure():
+    """Output starting with 'Error:' should fire."""
+    msgs = [
+        {"role": "user", "content": "run the build"},
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"function": {"name": "terminal"}}]},
+        {"role": "user", "content": "what happened?"},
+        {"role": "assistant", "content": "let me check"},
+        {"role": "user", "content": "ok"},
+        {"role": "tool", "content": "Error: can only create exec sessions on running containers: container state improper"},
+    ]
+    result = extract_signals(msgs, "coding")
+    names = [s.name for s in result.signals]
+    assert "tool_error" in names, "genuine error starting with 'Error:' should fire"
+
+
 def test_short_prompt_not_penalized_if_enough_context():
     """An expert developer might write short prompts in a known codebase.
     If the prompt has file paths or identifiers, don't penalize."""

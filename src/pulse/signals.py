@@ -4,6 +4,7 @@ Every function in this module is a pure function: messages in,
 signal list out. No side effects, no state.
 """
 
+import json
 import re
 from collections import Counter
 
@@ -485,6 +486,7 @@ def _detect_tool_errors(messages: list[dict]) -> list[Signal]:
 
     Only fires on messages that are explicitly error responses, not
     content that merely contains the word 'error' (like log lines, paths).
+    Strips JSON wrappers and checks the actual output content.
     """
     signals: list[Signal] = []
     for msg in messages:
@@ -493,18 +495,35 @@ def _detect_tool_errors(messages: list[dict]) -> list[Signal]:
         content = msg.get("content", "")
         if not isinstance(content, str):
             continue
-        lower = content.lower().strip()
+
+        # Strip JSON tool result wrapper
+        inner = content
+        if inner.strip().startswith("{"):
+            try:
+                parsed = json.loads(inner)
+                if isinstance(parsed, dict) and "output" in parsed:
+                    inner = parsed["output"]
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        lower = inner.lower().strip()
+
+        # Skip if output starts with clear success indicators
+        if lower.startswith(("all checks passed", "ok", "done", "pass", "---")):
+            continue
+
         # Only fire if the content IS an error (starts with error/traceback)
         # and is short enough to be an error message, not a large log
         is_explicit_error = (
             lower.startswith(("error:", "error ", "traceback"))
             or "error:" in lower[:50]
-        ) and len(content) < 500
+        ) and len(inner) < 500
+
         if is_explicit_error:
             signals.append(Signal(
                 name="tool_error", target="agent", severity="warning",
                 penalty=8,
-                evidence=[content[:150]],
+                evidence=[inner[:150]],
                 label="Tool returned an explicit error",
             ))
     return signals

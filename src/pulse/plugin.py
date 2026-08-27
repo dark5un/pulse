@@ -192,7 +192,7 @@ def _render_card(result, signals_flat: list[dict], task_type: str, model: str) -
             marker = "-" if s["penalty"] > 0 else "ok"
             lines.append(f"  [{marker}] {side}: {s['label']}")
             if s.get("evidence"):
-                e = s["evidence"][0].replace("\n", " ")[:100]
+                e = s["evidence"][0].replace("\n", " ")
                 lines.append(f"         {e}")
 
     if signals_flat:
