@@ -93,7 +93,7 @@ def _detect_correction_chain(messages: list[dict], task_type: str) -> list[Signa
         else:
             if chain_len >= 3:
                 evidence = [
-                    messages[t].get("content", "")[:100]
+                    messages[t].get("content", "")
                     for t in chain_turns[-3:]
                 ]
                 signals.append(Signal(
@@ -110,7 +110,7 @@ def _detect_correction_chain(messages: list[dict], task_type: str) -> list[Signa
     # Check if chain ended at last turn
     if chain_len >= 3:
         evidence = [
-            messages[t].get("content", "")[:100]
+            messages[t].get("content", "")
             for t in chain_turns[-3:]
         ]
         signals.append(Signal(
@@ -195,7 +195,7 @@ def _detect_goal_drift(messages: list[dict], task_type: str) -> list[Signal]:
 
     if drift_turns:
         evidence = [
-            messages[t].get("content", "")[:100]
+            messages[t].get("content", "")
             for t in drift_turns[-2:]
         ]
         signals.append(Signal(
@@ -523,7 +523,7 @@ def _detect_tool_errors(messages: list[dict]) -> list[Signal]:
             signals.append(Signal(
                 name="tool_error", target="agent", severity="warning",
                 penalty=8,
-                evidence=[inner[:150]],
+                evidence=[inner],
                 label="Tool returned an explicit error",
             ))
     return signals

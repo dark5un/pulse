@@ -134,9 +134,9 @@ def render_card(result, task_type: str) -> str:
             tag = f"{'▶' if s.penalty > 0 else '✓'}"
             evidence_str = ""
             if s.evidence:
-                e = s.evidence[0].replace("\n", " ")[:100]
+                e = s.evidence[0].replace("\n", " ")
                 evidence_str = f"\n  │    {e}"
-            lines.append(f"  │  {tag} {side}  {s.label[:48]:48s}{evidence_str}")
+            lines.append(f"  │  {tag} {side}  {s.label}{evidence_str}")
 
     if result.signals:
         lines.append("  ├─ Coaching ───────────────────────────────────────────┤")
