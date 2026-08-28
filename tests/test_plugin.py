@@ -75,7 +75,6 @@ def test_render_card_coaching_appears():
     card = plugin._render_card(result, signals_flat, "coding", "test-model")
     assert "Coaching" in card
     assert "use X approach" in card
-    assert "different approach" in card
 
 
 def test_render_card_no_coaching_when_clean():

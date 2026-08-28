@@ -16,7 +16,7 @@ from pulse.constants import (
     TASK_WRITING,
     WRITE_TOOLS,
 )
-from pulse.models import Signal, SignalResult
+from pulse.models import RuntimeLog, Signal, SignalResult
 from pulse.task_type import detect_task_type
 
 # ── Keyword sets (litmus-tested against known transcripts) ─────────────────
@@ -482,20 +482,21 @@ def _detect_low_diversity(messages: list[dict], task_type: str) -> list[Signal]:
     return []
 
 
-# ── Tool errors ──────────────────────────────────────────────────────────
+# ── Runtime errors (not signals — logged separately) ─────────────────────
 
-def _detect_tool_errors(messages: list[dict], task_type: str) -> list[Signal]:
-    """Detect tool outputs that are pure error responses.
+def _collect_runtime_errors(messages: list[dict]) -> list[RuntimeLog]:
+    """Collect tool outputs that contain explicit errors.
 
-    Only fires when the ENTIRE output is an error — not tool output that
-    happens to contain the word 'error' in passing (git commits, pytest
-    collection errors, pyright diagnostics, etc.).
+    These are NOT signals. They don't penalise the session score.
+    They're displayed in a 'Runtime Log' section so the user can see
+    what actually failed — module provenance + first error line.
 
-    A real tool error is:
-    - Starts with "Error:" or "Traceback (most recent call last):"
-    - Or is a JSON tool wrapper with an "error" key
+    Fires when:
+    - Output starts with "Error:" / "ERROR:" (shell/program error)
+    - Output starts with "Traceback (most recent call last):" (Python crash)
+    - JSON wrapper has an "error" key (structured Hermes tool error)
     """
-    signals: list[Signal] = []
+    logs: list[RuntimeLog] = []
     for msg in messages:
         if msg.get("role") not in ("assistant", "tool"):
             continue
@@ -503,24 +504,33 @@ def _detect_tool_errors(messages: list[dict], task_type: str) -> list[Signal]:
         if not isinstance(content, str):
             continue
 
+        # Identify which module produced this
+        module = "terminal"
+        tcs = msg.get("tool_calls") or []
+        if isinstance(tcs, dict):
+            tcs = [tcs]
+        for tc in tcs:
+            if not isinstance(tc, dict):
+                continue
+            fn = tc.get("function", tc)
+            name = fn.get("name", "") if isinstance(fn, dict) else ""
+            if name:
+                module = name
+                break
+
         inner = content
 
-        # Check if it's a structured JSON error (Hermes tool error format)
+        # Check for structured JSON error
         if isinstance(inner, str) and inner.strip().startswith("{"):
             try:
                 parsed = json.loads(inner)
-                if isinstance(parsed, dict):
-                    has_error_key = "error" in parsed and bool(parsed.get("error"))
-                    if has_error_key:
-                        signals.append(Signal(
-                            name="tool_error", target="agent", severity="warning",
-                            penalty=4,
-                            evidence=[str(parsed["error"])[:200]],
-                            label="Tool returned an explicit error",
-                        ))
-                        continue
-                    # If it has output key, unwrap and check that instead
-                    inner = parsed.get("output") or parsed.get("content") or inner
+                if isinstance(parsed, dict) and parsed.get("error"):
+                    logs.append(RuntimeLog(
+                        module=module,
+                        error=str(parsed["error"])[:200],
+                    ))
+                    continue
+                inner = parsed.get("output") or parsed.get("content") or inner
             except (json.JSONDecodeError, TypeError):
                 pass
 
@@ -529,36 +539,16 @@ def _detect_tool_errors(messages: list[dict], task_type: str) -> list[Signal]:
 
         inner = inner.strip()
 
-        # Only fire if the ENTIRE output is a traceback or starts with "Error:"
-        # — not output that mentions error in passing
+        # Check first line — only log if the ENTIRE output is an error
         first_line = inner.split("\n")[0].strip()
-
-        if first_line.startswith("Traceback (most recent call last):"):
-            signals.append(Signal(
-                name="tool_error", target="agent", severity="warning",
-                penalty=6,
-                evidence=[first_line],
-                label="Python traceback — tool call failed",
+        if first_line.startswith(("Error:", "ERROR:", "Traceback (most recent call last):")):
+            logs.append(RuntimeLog(
+                module=module,
+                error=first_line[:200],
             ))
             continue
 
-        if first_line.startswith("Error:") or first_line.startswith("ERROR:"):
-            signals.append(Signal(
-                name="tool_error", target="agent", severity="warning",
-                penalty=6,
-                evidence=[first_line],
-                label="Tool returned an explicit error",
-            ))
-            continue
-
-    # Cap total penalty from tool errors
-    total_penalty = sum(s.penalty for s in signals)
-    if total_penalty > 12:
-        ratio = 12 / total_penalty
-        for s in signals:
-            s.penalty = round(s.penalty * ratio, 1)
-
-    return signals
+    return logs
 
 
 # ── Shrinking prompts ────────────────────────────────────────────────────
@@ -638,7 +628,6 @@ def extract_signals(messages: list[dict], task_type: str | None = None) -> Signa
         _detect_reasoning_loops,
         _detect_premature_stop,
         _detect_tool_repetition,
-        _detect_tool_errors,
         _detect_low_diversity,
         _detect_shrinking_prompts,
         _detect_read_edit_ratio,
@@ -646,6 +635,9 @@ def extract_signals(messages: list[dict], task_type: str | None = None) -> Signa
 
     for detector in detectors:
         signals.extend(detector(messages, task_type) if "task_type" in detector.__code__.co_varnames else detector(messages))
+
+    # Collect runtime errors (separate from signals — zero penalty)
+    runtime_logs = _collect_runtime_errors(messages)
 
     # Compute full metrics
     reads = 0
@@ -678,6 +670,7 @@ def extract_signals(messages: list[dict], task_type: str | None = None) -> Signa
 
     return SignalResult(
         signals=signals,
+        runtime_logs=runtime_logs,
         metrics={
             "total_turns": len(messages),
             "total_tokens": total_tokens,

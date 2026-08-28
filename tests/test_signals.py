@@ -299,7 +299,7 @@ def test_tool_error_not_fired_on_successful_output():
 
 
 def test_tool_error_fired_on_genuine_failure():
-    """Output starting with 'Error:' should fire."""
+    """Output starting with 'Error:' should be logged as a runtime error, not a signal."""
     msgs = [
         {"role": "user", "content": "run the build"},
         {"role": "assistant", "content": "", "tool_calls": [
@@ -310,8 +310,13 @@ def test_tool_error_fired_on_genuine_failure():
         {"role": "tool", "content": "Error: can only create exec sessions on running containers: container state improper"},
     ]
     result = extract_signals(msgs, "coding")
+    # Should NOT be a signal (penalty)
     names = [s.name for s in result.signals]
-    assert "tool_error" in names, "genuine error starting with 'Error:' should fire"
+    assert "tool_error" not in names, "tool_error should not be a signal"
+    # Should be a runtime log
+    assert len(result.runtime_logs) >= 1, "should have at least one runtime log"
+    assert "Error:" in result.runtime_logs[0].error, "runtime log should contain the error"
+    assert result.runtime_logs[0].module == "terminal", "should identify the source module"
 
 
 def test_tool_error_not_fired_on_pyright_diagnostics():

@@ -161,7 +161,7 @@ def _shorten_model(name: str) -> str:
     return name
 
 
-def _render_card(result, signals_flat: list[dict], task_type: str, model: str) -> str:
+def _render_card(result, signals_flat: list[dict], task_type: str, model: str, runtime_logs: list | None = None) -> str:
     """Render a readable pulse card."""
     user_signals = [s for s in signals_flat if s["target"] == "user"]
     agent_signals = [s for s in signals_flat if s["target"] == "agent"]
@@ -195,6 +195,12 @@ def _render_card(result, signals_flat: list[dict], task_type: str, model: str) -
                 e = s["evidence"][0].replace("\n", " ")
                 lines.append(f"         {e}")
 
+    # Runtime log section — shows tool errors without penalising score
+    if runtime_logs:
+        lines.append("── Runtime Log ──────────────────────────────")
+        for log in runtime_logs[:6]:
+            lines.append(f"  [{log['module']}] {log['error']}")
+
     if signals_flat:
         lines.append("── Coaching ──────────────────────────────────")
         shown = set()
@@ -210,8 +216,6 @@ def _render_card(result, signals_flat: list[dict], task_type: str, model: str) -
                 lines.append("  Tell agent: 'proceed with X, don't reconsider'"); shown.add("loop")
             elif s["name"] == "tool_repetition" and "repetition" not in shown:
                 lines.append("  Tell agent: 'use cached results, don't re-fetch'"); shown.add("repetition")
-            elif s["name"] == "tool_error" and "tooldown" not in shown:
-                lines.append("  Agent hit tool errors — suggest a different approach"); shown.add("tooldown")
             elif s["name"] == "shallow_read" and "readdepth" not in shown:
                 lines.append("  Ask agent to 'read the relevant files first'"); shown.add("readdepth")
         if not shown:
@@ -222,6 +226,14 @@ def _render_card(result, signals_flat: list[dict], task_type: str, model: str) -
     lines.append("  Did this solve your problem? Reply with /pulse yes or /pulse no")
     lines.append("───────────────────────────────────────────────")
     return "\n".join(lines)
+
+
+def _serialise_runtime_logs(result) -> list[dict]:
+    """Serialise RuntimeLog objects to dicts for persistence."""
+    return [
+        {"module": log.module, "error": log.error, "severity": log.severity or "info"}
+        for log in (result.runtime_logs or [])
+    ]
 
 
 def _handle_trends() -> str:
@@ -478,12 +490,15 @@ def _handle_pulse(raw_args: str) -> str:
             "evidence": s.evidence[:2] if s.evidence else [],
         })
 
+    # Serialise runtime logs for persistence
+    runtime_logs_serialised = _serialise_runtime_logs(result)
+
     # Persist to state.db
     conn = _get_db()
     _write_result(conn, sid, model, task_type, result, signals_flat)
     conn.close()
 
-    return _render_card(result, signals_flat, task_type, model)
+    return _render_card(result, signals_flat, task_type, model, runtime_logs=runtime_logs_serialised)
 
 
 def register(ctx):
