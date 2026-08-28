@@ -51,6 +51,7 @@ def _get_db() -> sqlite3.Connection:
     """Open state.db, ensuring the pulse_results table exists."""
     db = Path.home() / ".hermes" / "state.db"
     conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
     conn.execute(TABLE_DDL)
     # Migrate: add columns if they don't exist (idempotent)
     for col, col_type in [("model", "TEXT"), ("task_type", "TEXT"), ("outcome_rating", "INTEGER")]:
