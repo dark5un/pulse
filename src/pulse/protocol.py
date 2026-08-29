@@ -115,6 +115,7 @@ def analyze_document(document: AnalysisDocument) -> AnalysisResult:
             "signals": signal_payload, "coaching": [s.get("label", "") for s in signal_payload if s.get("label")],
             "attribution": attribution, "provider": document.provider, "model": document.model,
             "message_count": len(document.messages), "user_turn_count": sum(m.get("role") == "user" for m in document.messages),
+            "runtime_logs": [{"module": log.module, "error": log.error, "severity": log.severity} for log in result.runtime_logs],
             "metrics": {k: v for k, v in metrics.items() if k not in {"user_texts", "agent_texts"}},
             "error": None})
 

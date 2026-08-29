@@ -10,15 +10,15 @@ From the repository root:
 pi -e ./pi/extensions/pulse.ts
 ```
 
-For a project package, add the checkout path with `pi install ./pi`, or install a future Git/npm release. Pulse must be available as `pulse` on `PATH`; set `PULSE_EXECUTABLE=/absolute/path/to/pulse` to override. The bridge sends one versioned JSON document on stdin and expects exactly one JSON result on stdout.
+For a project package, add the checkout path with `pi install ./pi`. The release channel is npm (`@dark5un/pi-pulse`); Git tags remain a source-install fallback. Pulse must be available as `pulse` on `PATH`; set `PULSE_EXECUTABLE=/absolute/path/to/pulse` to override. The bridge sends one versioned JSON document on stdin and expects exactly one JSON result on stdout.
 
 Commands: `/pulse`, `/pulse trends`, `/pulse models`, `/pulse useful`, `/pulse not-useful`, `/pulse yes`, `/pulse no`.
 
 Automatic analysis is disabled by default. Opt in with `PULSE_AUTO_ANALYZE=1`; it runs quietly after `agent_settled`, once per active branch leaf. Analyses and feedback are minimal, branch-local custom session entries (`pulse:analysis` and `pulse:feedback`), not a global database. The extension has full process permissions, so review source before loading it.
 
-Requirements: Pi 0.84.x or later, Node.js, and a working Pulse executable. Headless/print/RPC modes receive deterministic text or avoid UI calls. In-memory/ephemeral Pi sessions still analyze; persistence is unavailable when Pi itself is not persisted.
+Requirements: Pi 0.84.x, Node.js, and a working Pulse executable. The package peer dependency deliberately bounds support to `>=0.84.0 <0.85.0`; CI exercises Pi 0.84.4. Headless/print/RPC modes receive deterministic text or avoid UI calls. In-memory/ephemeral Pi sessions still analyze; persistence is unavailable when Pi itself is not persisted.
 
-Development: from `pi/`, run `npm run check` and `npm test`, plus the repository Python checks. `npm install` installs the local TypeScript/Vitest development dependencies.
+Development: from `pi/`, run `npm ci`, `npm run check`, and `npm test`, plus the repository Python checks. `npm ci` installs the local TypeScript/Vitest development dependencies. `PULSE_AUTO_ANALYZE=1` is the explicit v1 settings integration; Pi settings integration is intentionally not implicit.
 
 License: MIT.
 

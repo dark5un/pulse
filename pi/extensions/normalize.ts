@@ -1,7 +1,7 @@
 import type { NormalizedMessage, PulseInput } from "./types.js";
 
 type Entry = { id: string; parentId?: string | null; timestamp?: string; type?: string; message?: Record<string, unknown>; };
-const text = (value: unknown): string => Array.isArray(value) ? value.map(text).join(" ") : typeof value === "string" ? value : (value && typeof value === "object" && "text" in value) ? String((value as {text:unknown}).text) : "";
+const text = (value: unknown): string => Array.isArray(value) ? value.map(text).join(" ").trim() : typeof value === "string" ? value : (value && typeof value === "object" && "text" in value) ? String((value as {text:unknown}).text) : "";
 
 export function normalizeEntry(entry: Entry): NormalizedMessage | null {
   const m = entry.message ?? {};
