@@ -1,6 +1,6 @@
 # Pi Pulse extension
 
-Native Pi adapter for the deterministic Python Pulse engine. It uses Pi's public `SessionManager.getBranch()` and `appendEntry()` APIs; it never reads Pi JSONL or Hermes SQLite files.
+Native Pi adapter for the harness-neutral Pulse session-quality engine. It uses Pi's public `SessionManager.getBranch()` and `appendEntry()` APIs; it never reads Pi JSONL or Hermes SQLite files.
 
 ## Local use
 
@@ -12,7 +12,7 @@ pi -e ./pi/extensions/pulse.ts
 
 For a project package, add the checkout path with `pi install ./pi`. The release channel is npm (`@dark5un/pi-pulse`); Git tags remain a source-install fallback. Pulse must be available as `pulse` on `PATH`; set `PULSE_EXECUTABLE=/absolute/path/to/pulse` to override. The bridge sends one versioned JSON document on stdin and expects exactly one JSON result on stdout.
 
-Commands: `/pulse`, `/pulse trends`, `/pulse models`, `/pulse useful`, `/pulse not-useful`, `/pulse yes`, `/pulse no`.
+Commands: `/pulse`, `/pulse trends`, `/pulse models`, `/pulse useful`, `/pulse not-useful`, `/pulse yes`, `/pulse no`. The optional `pulse_analyze` tool lets the agent request a structured report; it never records feedback automatically.
 
 Automatic analysis is disabled by default. Opt in with `PULSE_AUTO_ANALYZE=1`; it runs quietly after `agent_settled`, once per active branch leaf. Analyses and feedback are minimal, branch-local custom session entries (`pulse:analysis` and `pulse:feedback`), not a global database. The extension has full process permissions, so review source before loading it.
 

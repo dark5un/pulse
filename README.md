@@ -1,6 +1,8 @@
 # Pulse — Session Health Monitor for AI Conversations
 
-Pulse is a deterministic Hermes Agent plugin that analyzes conversations with evidence-based signals attributed to the user, agent, or system. It stores one replaceable analysis snapshot per session while preserving feedback and outcome ratings.
+![Pulse hero](assets/pulse-hero.png)
+
+Pulse is a harness-neutral session quality engine with native integrations for Hermes Agent and Pi. It analyzes conversations with evidence-based signals attributed to the user, agent, or system, while preserving each harness's native session and state model.
 
 ## Commands
 
@@ -14,9 +16,17 @@ Pulse is a deterministic Hermes Agent plugin that analyzes conversations with ev
 
 The CLI supports `--file`, `--session`, and `--json`. `pulse analyze` is the versioned stdin/stdout JSON protocol used by adapters. `--deep` is reserved and explicitly **not implemented**; Pulse currently performs deterministic analysis only.
 
-## Pi integration
+## Native integrations
 
-A native Pi extension lives in [`pi/`](pi/README.md). Run `pi -e ./pi/extensions/pulse.ts` from a checkout, or install the local package with `pi install ./pi`. It uses Pi's public active-branch APIs and invokes the local `pulse analyze` protocol; it does not parse Pi JSONL or Hermes SQLite. Automatic analysis is opt-in via `PULSE_AUTO_ANALYZE=1` and the bridge executable can be set with `PULSE_EXECUTABLE`.
+### Hermes Agent
+
+The Hermes integration is a native `/pulse` plugin using Hermes's shared session store. It supports trend and model views across analyzed Hermes sessions.
+
+### Pi
+
+A native TypeScript extension lives in [`pi/`](pi/README.md). Run `pi -e ./pi/extensions/pulse.ts` from a checkout, or install the local package with `pi install ./pi`. It reads only Pi's public active-branch APIs, invokes the local `pulse analyze` protocol, and never parses Pi JSONL or Hermes SQLite. It provides the `/pulse` commands plus the optional `pulse_analyze` tool. Automatic analysis is opt-in via `PULSE_AUTO_ANALYZE=1` and runs after `agent_settled`.
+
+Both integrations feed the same versioned normalized-message protocol and deterministic Python engine. Pi persists analysis and feedback as branch-local custom entries, so in-place branches do not leak results into sibling branches.
 
 ## Installation
 
