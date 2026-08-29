@@ -17,7 +17,11 @@ import sys
 import time
 from pathlib import Path
 
-pulse_src = Path(__file__).resolve().parent.parent.parent / "src"
+plugin_root = Path(__file__).resolve().parent
+pulse_src = plugin_root.parent.parent.parent / "src"
+# Installed native plugins carry a nested package beside __init__.py.
+if (plugin_root / "pulse").is_dir():
+    pulse_src = plugin_root
 if str(pulse_src) not in sys.path:
     sys.path.insert(0, str(pulse_src))
 
