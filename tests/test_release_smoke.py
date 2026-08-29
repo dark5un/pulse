@@ -15,6 +15,13 @@ def test_manifest_and_offline_install_uninstall(tmp_path: Path) -> None:
     subprocess.run(["bash", str(repo / "install.sh")], env=env, check=True, capture_output=True, text=True)
     installed = home / ".hermes/plugins/pulse"
     assert (installed / "plugin.yaml").is_file()
-    assert (installed / "__init__.py").is_symlink()
+    assert (installed / "__init__.py").is_file()
+    assert not (installed / "__init__.py").is_symlink()
+    external = tmp_path / "external"
+    external.mkdir()
+    probe = subprocess.run(["python", "-c", "import sys; sys.path.insert(0, sys.argv[1]); import pulse", str(installed)],
+                           cwd=external, env={"PATH": env["PATH"], "HOME": str(home), "HERMES_HOME": str(home / ".hermes")},
+                           check=False, capture_output=True, text=True)
+    assert probe.returncode == 0, probe.stderr
     subprocess.run(["bash", str(repo / "uninstall.sh")], env=env, check=True, capture_output=True, text=True)
     assert not installed.exists()

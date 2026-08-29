@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 plugin_root = Path(__file__).resolve().parent
-pulse_src = plugin_root.parent.parent.parent / "src"
+pulse_src = plugin_root.parent.parent
 # Installed native plugins carry a nested package beside __init__.py.
 if (plugin_root / "pulse").is_dir():
     pulse_src = plugin_root
@@ -26,6 +26,7 @@ if str(pulse_src) not in sys.path:
     sys.path.insert(0, str(pulse_src))
 
 from pulse.paths import state_db
+from pulse.scoring import score_penalties
 from pulse.session_store import load_session
 from pulse.signals import extract_signals
 from pulse.weights import apply as apply_weight
@@ -78,23 +79,7 @@ def _write_result(conn: sqlite3.Connection, session_id: str, model: str,
     user_penalty = sum(s["penalty"] for s in signals_flat if s["target"] == "user")
     agent_penalty = sum(s["penalty"] for s in signals_flat if s["target"] == "agent")
     other_penalty = sum(s["penalty"] for s in signals_flat if s["target"] not in {"user", "agent"})
-    total_penalty = user_penalty + agent_penalty + other_penalty
-
-    if total_penalty == 0 or total_penalty <= 15:
-        status = "green"
-    elif total_penalty <= 30:
-        status = "yellow"
-    else:
-        status = "red"
-
-    total = max(total_penalty, 1)
-    user_blame = round(user_penalty / total * 100) if total_penalty > 0 else 0
-    agent_blame = round(agent_penalty / total * 100) if total_penalty > 0 else 0
-    other_blame = round(other_penalty / total * 100) if total_penalty > 0 else 0
-    if total_penalty == 0:
-        other_blame = 0
-
-    overall = max(0, min(100, round(100 - total_penalty)))
+    breakdown = score_penalties({"user": user_penalty, "agent": agent_penalty, "other": other_penalty})
 
     conn.execute("""
         INSERT INTO pulse_results
@@ -104,8 +89,8 @@ def _write_result(conn: sqlite3.Connection, session_id: str, model: str,
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(session_id) DO UPDATE SET run_at=excluded.run_at, run_mode=excluded.run_mode, overall_score=excluded.overall_score, status=excluded.status, user_blame_pct=excluded.user_blame_pct, agent_blame_pct=excluded.agent_blame_pct, other_blame_pct=excluded.other_blame_pct, model=excluded.model, task_type=excluded.task_type, signal_details=excluded.signal_details
     """, (
-        session_id, time.time(), "deterministic", overall, status,
-        user_blame, agent_blame, other_blame,
+        session_id, time.time(), "deterministic", breakdown.score, breakdown.status,
+        breakdown.attribution["user"], breakdown.attribution["agent"], breakdown.attribution["other"],
         model, task_type, json.dumps(signals_flat), time.time(),
     ))
     conn.commit()

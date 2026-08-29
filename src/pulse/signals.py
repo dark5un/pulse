@@ -523,6 +523,11 @@ def _collect_runtime_errors(messages: list[dict]) -> list[RuntimeLog]:
 
         inner = content
 
+        # Explicit tool error is authoritative even without an error prefix.
+        if msg.get("tool_error") is True:
+            logs.append(RuntimeLog(module=module, error=inner.strip()[:200]))
+            continue
+
         # Check for structured JSON error
         if isinstance(inner, str) and inner.strip().startswith("{"):
             try:

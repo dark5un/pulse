@@ -45,9 +45,11 @@ The installer places the native Hermes manifest and `__init__.py` under `${HERME
 
 - Hermes state is profile-safe: `HERMES_HOME` selects `state.db`, `plugins/`, and `pulse_weights.json`; otherwise `$HOME/.hermes` is used.
 - A session is analyzed only when it has **at least 5 total messages and at least 3 user turns**.
-- Scores are clamped to 0–100. User, agent, and system/other penalties are calculated separately; system/other penalties contribute to `other_blame_pct`.
+- Scores are clamped to 0–100. Attribution fields are normalized penalty shares: clean sessions return all zeroes, while non-clean sessions sum to 100%; system/other penalties contribute to `other_blame_pct`.
 - Re-analysis updates analysis columns with an explicit SQLite upsert, preserving `feedback_rating` and `outcome_rating`.
 - Repeating a feedback command reports that the result is already rated and does not add another learned-weight event. Rating changes are rejected to preserve event accounting.
+- Pi feedback has independent usefulness (`useful`/`not-useful`) and outcome (`yes`/`no`) dimensions; repeats are idempotent and polarity changes are rejected. Automatic Pi analysis keys on the current ordered branch revision and retries failed invocations.
+- The installer copies a self-contained plugin package, so loading works from an external working directory without repository `PYTHONPATH` or a resolved source symlink.
 - Malformed session tool-call JSON is ignored safely. Explicit `tool_name` is preserved and used for runtime provenance.
 
 ## Development

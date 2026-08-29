@@ -21,7 +21,7 @@ fi
 PLUGIN_DIR="$HERMES_HOME_DIR/plugins/pulse"
 mkdir -p "$PLUGIN_DIR"
 cp "$INSTALL_DIR/src/pulse/plugin.yaml" "$PLUGIN_DIR/plugin.yaml"
-ln -sfn "$INSTALL_DIR/src/pulse/plugin.py" "$PLUGIN_DIR/__init__.py"
+cp "$INSTALL_DIR/src/pulse/plugin.py" "$PLUGIN_DIR/__init__.py"
 # Keep the package imports self-contained when Hermes loads this directory.
 mkdir -p "$PLUGIN_DIR/pulse"
 cp "$INSTALL_DIR/src/pulse"/*.py "$PLUGIN_DIR/pulse/"

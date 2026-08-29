@@ -86,3 +86,11 @@ def test_get_feedback_count():
     _ = load()
     # Should be at least 0
     assert isinstance(get_feedback_count(), int)
+
+
+def test_feedback_count_updates_in_same_process():
+    weights = {"test_sig": {"penalty": 10, "useful": 0, "not_useful": 0},
+               "_meta": {"total_feedback": 0}}
+    load()
+    record_feedback(weights, "test_sig", useful=True)
+    assert get_feedback_count() == 1

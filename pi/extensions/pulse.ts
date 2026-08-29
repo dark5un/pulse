@@ -9,6 +9,7 @@ import type { PulseResult } from "./types.js";
 export default function pulseExtension(pi: ExtensionAPI) {
   let lastAutomaticKey = "";
   const branch = (ctx: any) => { const sm = ctx.sessionManager; const entries = sm.getBranch(); return { sm, entries, leaf: sm.getLeafId() ?? "root", session: sm.getSessionId() }; };
+  const branchRevisionKey = (entries: any[], session: string, leaf: string) => `${session}:${leaf}:${entries.map(entry => String(entry.id ?? "")).join(",")}:${entries.length}`;
   const notify = (ctx:any, text:string, level:"info"|"warning"="info") => { if (ctx.hasUI && ctx.ui?.notify) ctx.ui.notify(text, level); else if (ctx.ui?.setStatus) ctx.ui.setStatus("pulse", text); };
   const run = async (ctx:any, trigger:"command"|"automatic"="command") => { const b=branch(ctx); const input=normalizeBranch(b.entries,b.session,b.leaf); const result=await analyzeWithPulse(input); if(result.status!=="insufficient_data") saveAnalysis(pi,result,trigger); return result; };
   pi.registerCommand("pulse", { description: "Analyze the active Pi branch with Pulse", handler: async (args:string, ctx:any) => {
@@ -33,7 +34,7 @@ export default function pulseExtension(pi: ExtensionAPI) {
       }
     },
   });
-  pi.on("agent_settled", async (_event:any, ctx:any) => { if(process.env.PULSE_AUTO_ANALYZE !== "1") return; const b=branch(ctx); const key=`${b.session}:${b.leaf}`; if(key===lastAutomaticKey)return; lastAutomaticKey=key; try { const r=await run(ctx,"automatic"); if(r.status!=="insufficient_data" && ctx.hasUI) ctx.ui.setStatus?.("pulse",`${r.score}/100`); } catch { /* passive automation must never disrupt Pi */ } });
+  pi.on("agent_settled", async (_event:any, ctx:any) => { if(process.env.PULSE_AUTO_ANALYZE !== "1") return; const b=branch(ctx); const key=branchRevisionKey(b.entries,b.session,b.leaf); if(key===lastAutomaticKey)return; try { const r=await run(ctx,"automatic"); lastAutomaticKey=key; if(r.status!=="insufficient_data" && ctx.hasUI) ctx.ui.setStatus?.("pulse",`${r.score}/100`); } catch { /* passive automation must never disrupt Pi */ } });
   const restoreStatus = (ctx:any) => {
     lastAutomaticKey = "";
     if (!ctx.hasUI) return;

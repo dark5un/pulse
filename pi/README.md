@@ -14,7 +14,7 @@ For a project package, add the checkout path with `pi install ./pi`. The release
 
 Commands: `/pulse`, `/pulse trends`, `/pulse models`, `/pulse useful`, `/pulse not-useful`, `/pulse yes`, `/pulse no`. The optional `pulse_analyze` tool lets the agent request a structured report; it never records feedback automatically.
 
-Automatic analysis is disabled by default. Opt in with `PULSE_AUTO_ANALYZE=1`; it runs quietly after `agent_settled`, once per active branch leaf. Analyses and feedback are minimal, branch-local custom session entries (`pulse:analysis` and `pulse:feedback`), not a global database. The extension has full process permissions, so review source before loading it.
+Automatic analysis is disabled by default. Opt in with `PULSE_AUTO_ANALYZE=1`; it runs quietly after `agent_settled`, once per unchanged ordered branch revision, and retries after failures. Analyses receive unique IDs and feedback is idempotent per analysis and per dimension: usefulness (`useful`/`not-useful`) and outcome (`yes`/`no`) can each be rated once, while polarity changes are rejected. Analyses and feedback are minimal, branch-local custom session entries (`pulse:analysis` and `pulse:feedback`), not a global database. The extension has full process permissions, so review source before loading it.
 
 Requirements: Pi 0.84.x, Node.js, and a working Pulse executable. The package peer dependency deliberately bounds support to `>=0.84.0 <0.85.0`; CI exercises Pi 0.84.4. Headless/print/RPC modes receive deterministic text or avoid UI calls. In-memory/ephemeral Pi sessions still analyze; persistence is unavailable when Pi itself is not persisted.
 

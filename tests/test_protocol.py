@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from pulse.protocol import analyze_document, parse_document, serialize_result
+from pulse.scoring import score_penalties
 
 
 def valid_document() -> dict:
@@ -53,3 +54,25 @@ def test_fixture_excludes_sibling_branch():
 def test_stable_serialization():
     document = parse_document(valid_document())
     assert serialize_result(analyze_document(document)) == serialize_result(analyze_document(document))
+
+
+def test_clean_document_has_zero_attribution():
+    result = analyze_document(parse_document(valid_document()))
+    assert result["attribution"] == {"user": 0.0, "agent": 0.0, "other": 0.0}
+
+
+def test_user_only_penalty_is_fully_attributed_to_user():
+    assert score_penalties({"user": 12.0}).attribution == {"user": 100.0, "agent": 0.0, "other": 0.0}
+
+
+def test_non_clean_attribution_shares_sum_to_one_hundred():
+    shares = score_penalties({"user": 1.0, "agent": 2.0, "other": 1.0}).attribution
+    assert abs(sum(shares.values()) - 100.0) < 0.01
+
+
+def test_explicit_tool_error_is_logged_with_tool_name():
+    document = valid_document()
+    document["messages"][3] = {"id": "tool", "role": "tool", "content": "permission denied",
+                               "tool_name": "bash", "tool_error": True, "tool_calls": []}
+    result = analyze_document(parse_document(document))
+    assert result["runtime_logs"] == [{"module": "bash", "error": "permission denied", "severity": "info"}]

@@ -39,4 +39,9 @@ describe("Pulse bridge", () => {
     const slow = script("setTimeout(() => {}, 1000)");
     await expect(analyzeWithPulse(input, { executable: slow, timeoutMs: 10 })).rejects.toThrow("timed out after 10ms");
   });
+
+  it("enforces output limits in UTF-8 bytes", async () => {
+    const noisy = script("process.stdout.write('€'.repeat(40))");
+    await expect(analyzeWithPulse(input, { executable: noisy, maxOutputBytes: 100 })).rejects.toThrow("output exceeded limit");
+  });
 });

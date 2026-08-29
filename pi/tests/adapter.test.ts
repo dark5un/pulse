@@ -61,7 +61,20 @@ describe("branch-local state", () => {
     const latest = latestAnalysis(entries, "s1", "l1");
     expect(latest?.result.score).toBe(90);
     expect(aggregate(entries, "s1", "l1")).toEqual({ count: 2, average: 86, models: [{ model: "local/llama", count: 1, average: 82 }, { model: "local/other", count: 1, average: 90 }] });
-    expect(saveFeedback(writer, entries, latest!.sourceEntryId, "useful")).toBe("l1");
-    expect(saveFeedback(writer, entries, latest!.sourceEntryId, "useful")).toBeNull();
+    const analysisId = latest!.analysisId;
+    expect(saveFeedback(writer, entries, analysisId, "useful")).toBe(analysisId);
+    expect(saveFeedback(writer, entries, analysisId, "useful")).toBeNull();
+    expect(saveFeedback(writer, entries, analysisId, "not-useful")).toBeNull();
+    expect(saveFeedback(writer, entries, analysisId, "yes")).toBe(analysisId);
+    expect(saveFeedback(writer, entries, analysisId, "no")).toBeNull();
+  });
+
+  it("assigns distinct identities to analyses on the same branch", () => {
+    const entries: { customType?: string; data?: unknown }[] = [];
+    const writer = { appendEntry: (customType: string, data: unknown) => entries.push({ customType, data }) };
+    saveAnalysis(writer, result(), "command");
+    saveAnalysis(writer, result(), "command");
+    const ids = entries.map(e => (e.data as any).analysisId);
+    expect(new Set(ids).size).toBe(2);
   });
 });

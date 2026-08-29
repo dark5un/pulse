@@ -6,6 +6,7 @@ import sys
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from pulse.scoring import score_penalties
 from pulse.signals import extract_signals
 
 SCHEMA_VERSION = 1
@@ -103,17 +104,13 @@ def analyze_document(document: AnalysisDocument) -> AnalysisResult:
         signal_payload.append({"id": signal.name, "name": signal.name, "target": signal.target,
                                "severity": signal.severity, "penalty": signal.penalty,
                                "label": signal.label, "evidence": signal.evidence[:2]})
-    total = sum(penalties.values())
-    score = max(0, min(100, round(100 - total)))
-    total_penalty = max(total, 1.0)
-    attribution = {key: round(max(0.0, 100 - value / total_penalty * 100), 2) for key, value in penalties.items()}
-    attribution["user"] = round(100 - penalties["user"] / total_penalty * 100, 2)
+    breakdown = score_penalties(penalties)
     status = "insufficient_data" if result.skipped_reason else "ok"
     return AnalysisResult({"schema_version": SCHEMA_VERSION, "status": status,
             "session_id": document.session_id, "branch_leaf_id": document.branch_leaf_id,
-            "score": score, "task_type": metrics.get("task_type", "chat"),
+            "score": breakdown.score, "task_type": metrics.get("task_type", "chat"),
             "signals": signal_payload, "coaching": [s.get("label", "") for s in signal_payload if s.get("label")],
-            "attribution": attribution, "provider": document.provider, "model": document.model,
+            "attribution": breakdown.attribution, "provider": document.provider, "model": document.model,
             "message_count": len(document.messages), "user_turn_count": sum(m.get("role") == "user" for m in document.messages),
             "runtime_logs": [{"module": log.module, "error": log.error, "severity": log.severity} for log in result.runtime_logs],
             "metrics": {k: v for k, v in metrics.items() if k not in {"user_texts", "agent_texts"}},

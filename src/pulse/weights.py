@@ -64,12 +64,14 @@ def apply(weights: dict[str, Any], signal_name: str, default_penalty: float) -> 
     return round(max(default_penalty * .5, min(default_penalty * 1.5, numeric)), 1)
 
 def record_feedback(weights: dict[str, Any], signal_name: str, useful: bool) -> dict[str, Any]:
+    global _feedback_count
     entry = weights.get(signal_name)
     if not _valid_entry(entry): return weights
     assert isinstance(entry, dict)
     meta = weights.setdefault("_meta", {"total_feedback": 0})
     if not isinstance(meta, dict): meta = weights["_meta"] = {"total_feedback": 0}
     meta["total_feedback"] = int(meta.get("total_feedback", 0)) + 1
+    _feedback_count = meta["total_feedback"]
     key = "useful" if useful else "not_useful"; entry[key] = entry.get(key, 0) + 1
     total = entry["useful"] + entry["not_useful"]
     if meta["total_feedback"] > 5 and total >= 3:
