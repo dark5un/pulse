@@ -1,58 +1,33 @@
-import { describe, it, expect } from "vitest";
-import { readFileSync } from "fs";
-import { existsSync } from "fs";
+import { describe, expect, it } from "vitest";
+import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
-describe("package metadata", () => {
-  it("has valid package.json", () => {
-    const packageJson = JSON.parse(readFileSync("./pi/package.json", "utf8"));
-    expect(packageJson.name).toBe("@dark5un/pulse");
+const packageDir = fileURLToPath(new URL("..", import.meta.url));
+const packageJson = JSON.parse(readFileSync(`${packageDir}/package.json`, "utf8"));
+
+describe("Pi package metadata", () => {
+  it("declares the Pi package resource and development checks", () => {
+    expect(packageJson.name).toBe("@dark5un/pi-pulse");
     expect(packageJson.keywords).toContain("pi-package");
     expect(packageJson.license).toBe("MIT");
-  });
-
-  it("has pi.extensions entry", () => {
-    const packageJson = JSON.parse(readFileSync("./pi/package.json", "utf8"));
-    expect(packageJson.pi).toHaveProperty("extensions");
-    expect(packageJson.pi.extensions).toContain("pulse");
-  });
-
-  it("has no runtime dependency in devDependencies", () => {
-    const packageJson = JSON.parse(readFileSync("./pi/package.json", "utf8"));
-    const runtimeDeps = packageJson.dependencies || {};
-    const devDeps = packageJson.devDependencies || {};
-    // No runtime dependencies should be in devDependencies
-    Object.keys(devDeps).forEach((key) => {
-      expect(runtimeDeps[key]).toBeUndefined();
-    });
+    expect(packageJson.pi.extensions).toContain("./extensions/pulse.ts");
+    expect(packageJson.scripts.check).toBe("tsc --noEmit -p tsconfig.json");
+    expect(packageJson.scripts.test).toBe("vitest run");
   });
 });
 
-describe("extension file exists", () => {
-  it("pulse.ts exists", () => {
-    expect(existsSync("./pi/extensions/pulse.ts")).toBeTrue();
-  });
-
-  it("types.ts exists", () => {
-    expect(existsSync("./pi/extensions/types.ts")).toBeTrue();
-  });
-
-  it("normalize.ts exists", () => {
-    expect(existsSync("./pi/extensions/normalize.ts")).toBeTrue();
-  });
-
-  it("bridge.ts exists", () => {
-    expect(existsSync("./pi/extensions/bridge.ts")).toBeTrue();
-  });
-
-  it("render.ts exists", () => {
-    expect(existsSync("./pi/extensions/render.ts")).toBeTrue();
-  });
-
-  it("state.ts exists", () => {
-    expect(existsSync("./pi/extensions/state.ts")).toBeTrue();
-  });
-
-  it("config.ts exists", () => {
-    expect(existsSync("./pi/extensions/config.ts")).toBeTrue();
-  });
+describe("extension resources", () => {
+  for (const resource of [
+    "extensions/pulse.ts",
+    "extensions/types.ts",
+    "extensions/normalize.ts",
+    "extensions/bridge.ts",
+    "extensions/render.ts",
+    "extensions/state.ts",
+    "extensions/config.ts",
+  ]) {
+    it(`includes ${resource}`, () => {
+      expect(existsSync(`${packageDir}/${resource}`)).toBe(true);
+    });
+  }
 });

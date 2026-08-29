@@ -18,7 +18,7 @@ Automatic analysis is disabled by default. Opt in with `PULSE_AUTO_ANALYZE=1`; i
 
 Requirements: Pi 0.84.x or later, Node.js, and a working Pulse executable. Headless/print/RPC modes receive deterministic text or avoid UI calls. In-memory/ephemeral Pi sessions still analyze; persistence is unavailable when Pi itself is not persisted.
 
-Development: `npm exec tsc -- --noEmit -p pi/tsconfig.json` (with TypeScript installed), plus the repository Python checks.
+Development: from `pi/`, run `npm run check` and `npm test`, plus the repository Python checks. `npm install` installs the local TypeScript/Vitest development dependencies.
 
 License: MIT.
 

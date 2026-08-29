@@ -4,10 +4,25 @@
   "description": "Pulse session-quality analysis for Pi",
   "license": "MIT",
   "repository": "https://github.com/dark5un/pulse",
-  "keywords": ["pi-package"],
+  "keywords": [
+    "pi-package"
+  ],
   "type": "module",
-  "pi": { "extensions": ["./extensions/pulse.ts"] },
-  "dependencies": {},
-  "peerDependencies": { "@earendil-works/pi-coding-agent": "*" },
-  "devDependencies": { "typescript": "^5.0.0" }
+  "pi": {
+    "extensions": [
+      "./extensions/pulse.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "scripts": {
+    "check": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "typescript": "^5.0.0",
+    "vitest": "^4.1.11"
+  }
 }
