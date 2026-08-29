@@ -1,0 +1,13 @@
+{
+  "name": "@dark5un/pi-pulse",
+  "version": "0.1.0",
+  "description": "Pulse session-quality analysis for Pi",
+  "license": "MIT",
+  "repository": "https://github.com/dark5un/pulse",
+  "keywords": ["pi-package"],
+  "type": "module",
+  "pi": { "extensions": ["./extensions/pulse.ts"] },
+  "dependencies": {},
+  "peerDependencies": { "@earendil-works/pi-coding-agent": "*" },
+  "devDependencies": { "typescript": "^5.0.0" }
+}

@@ -12,7 +12,11 @@ Pulse is a deterministic Hermes Agent plugin that analyzes conversations with ev
 | `/pulse useful` / `/pulse not-useful` | Rate the latest analysis (idempotent) |
 | `/pulse yes` / `/pulse no` | Rate whether the session solved the problem |
 
-The CLI supports `--file`, `--session`, and `--json`. `--deep` is reserved and explicitly **not implemented**; Pulse currently performs deterministic analysis only.
+The CLI supports `--file`, `--session`, and `--json`. `pulse analyze` is the versioned stdin/stdout JSON protocol used by adapters. `--deep` is reserved and explicitly **not implemented**; Pulse currently performs deterministic analysis only.
+
+## Pi integration
+
+A native Pi extension lives in [`pi/`](pi/README.md). Run `pi -e ./pi/extensions/pulse.ts` from a checkout, or install the local package with `pi install ./pi`. It uses Pi's public active-branch APIs and invokes the local `pulse analyze` protocol; it does not parse Pi JSONL or Hermes SQLite. Automatic analysis is opt-in via `PULSE_AUTO_ANALYZE=1` and the bridge executable can be set with `PULSE_EXECUTABLE`.
 
 ## Installation
 

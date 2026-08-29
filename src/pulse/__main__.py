@@ -27,6 +27,10 @@ def render_card(result, task_type: str) -> str:
 
 
 def main() -> None:
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "analyze":
+        from pulse.protocol import main as protocol_main
+        raise SystemExit(protocol_main())
     parser = argparse.ArgumentParser(description="Hermes Pulse — session health monitor")
     parser.add_argument("--file", "-f", help="Session JSONL file")
     parser.add_argument("--session", "-s", help="Session ID from state.db")
