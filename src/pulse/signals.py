@@ -54,11 +54,12 @@ GOAL_DRIFT_KW: set[str] = {
 def _check_minimum_messages(messages: list[dict]) -> str | None:
     """Return a skip reason if the session is too short, else None.
 
-    Checks total message count, not user turns — supports continuations
-    where the user may send only 1-2 new prompts in an existing session.
+    Requires both five total messages and three user turns. Tool/system
+    rows count toward total messages but never substitute for user turns.
     """
     total_msgs = len(messages)
-    if total_msgs < 5:
+    user_turns = sum(1 for message in messages if message.get("role") == "user")
+    if total_msgs < 5 or user_turns < 3:
         return "insufficient_data"
     return None
 
@@ -497,6 +498,7 @@ def _collect_runtime_errors(messages: list[dict]) -> list[RuntimeLog]:
     - JSON wrapper has an "error" key (structured Hermes tool error)
     """
     logs: list[RuntimeLog] = []
+    last_tool_module = "unknown"
     for msg in messages:
         if msg.get("role") not in ("assistant", "tool"):
             continue
@@ -504,8 +506,8 @@ def _collect_runtime_errors(messages: list[dict]) -> list[RuntimeLog]:
         if not isinstance(content, str):
             continue
 
-        # Identify which module produced this
-        module = "terminal"
+        # Hermes stores tool results with tool_name even when no call is present.
+        module = str(msg.get("tool_name") or last_tool_module)
         tcs = msg.get("tool_calls") or []
         if isinstance(tcs, dict):
             tcs = [tcs]
@@ -516,6 +518,7 @@ def _collect_runtime_errors(messages: list[dict]) -> list[RuntimeLog]:
             name = fn.get("name", "") if isinstance(fn, dict) else ""
             if name:
                 module = name
+                last_tool_module = name
                 break
 
         inner = content

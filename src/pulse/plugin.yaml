@@ -1,0 +1,5 @@
+name: pulse
+version: 0.1.0
+description: Session health monitor for Hermes conversations
+provides_hooks: []
+provides_tools: []

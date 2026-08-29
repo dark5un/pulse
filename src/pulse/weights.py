@@ -1,107 +1,84 @@
-"""Self-learning weights for Pulse signal detectors.
+"""Validated, atomic learned weights persistence."""
+from __future__ import annotations
 
-Stores per-signal Bayesian weights in ~/.hermes/pulse_weights.json.
-Each signal's penalty weight is tuned by user feedback.
-"""
-
+import copy
 import json
+import os
+import tempfile
 from pathlib import Path
+from typing import Any
 
-WEIGHTS_PATH = Path.home() / ".hermes" / "pulse_weights.json"
+from pulse.paths import weights_file
 
-DEFAULT_WEIGHTS = {
-    "correction_chain": {"penalty": 12, "useful": 0, "not_useful": 0},
-    "frustration": {"penalty": 12, "useful": 0, "not_useful": 0},
-    "goal_drift": {"penalty": 6, "useful": 0, "not_useful": 0},
-    "vague_prompts": {"penalty": 10, "useful": 0, "not_useful": 0},
-    "shrinking_prompts": {"penalty": 5, "useful": 0, "not_useful": 0},
-    "reasoning_loop": {"penalty": 15, "useful": 0, "not_useful": 0},
-    "premature_stop": {"penalty": 10, "useful": 0, "not_useful": 0},
-    "tool_error": {"penalty": 8, "useful": 0, "not_useful": 0},
-    "tool_repetition": {"penalty": 10, "useful": 0, "not_useful": 0},
-    "shallow_read": {"penalty": 12, "useful": 0, "not_useful": 0},
-    "low_diversity": {"penalty": 5, "useful": 0, "not_useful": 0},
-    "deep_context_drift": {"penalty": 5, "useful": 0, "not_useful": 0},
+DEFAULT_WEIGHTS: dict[str, dict[str, Any]] = {
+    name: {"penalty": penalty, "useful": 0, "not_useful": 0}
+    for name, penalty in {"correction_chain":12,"frustration":12,"goal_drift":6,"vague_prompts":10,"shrinking_prompts":5,"reasoning_loop":15,"premature_stop":10,"tool_error":8,"tool_repetition":10,"shallow_read":12,"low_diversity":5,"deep_context_drift":5}.items()
 }
-
 _feedback_count = 0
 
+def _valid_entry(value: object) -> bool:
+    if not isinstance(value, dict): return False
+    penalty = value.get("penalty")
+    return isinstance(penalty, (int, float)) and not isinstance(penalty, bool) and penalty >= 0 and isinstance(value.get("useful", 0), int) and isinstance(value.get("not_useful", 0), int)
 
-def load() -> dict:
-    """Load weights from file, merging with defaults for any new signals."""
-    if WEIGHTS_PATH.exists():
-        try:
-            data = json.loads(WEIGHTS_PATH.read_text())
-            merged = dict(DEFAULT_WEIGHTS)
-            merged.update(data)
-            # Track feedback count from meta
-            global _feedback_count
-            _feedback_count = merged.get("_meta", {}).get("total_feedback", 0)
-            return merged
-        except (json.JSONDecodeError, KeyError):
-            pass
-    return dict(DEFAULT_WEIGHTS)
+def load(path: Path | None = None) -> dict[str, Any]:
+    global _feedback_count
+    result: dict[str, Any] = copy.deepcopy(DEFAULT_WEIGHTS)
+    target = path or weights_file()
+    try: data: object = json.loads(target.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError): data = {}
+    _feedback_count = 0
+    if isinstance(data, dict):
+        meta = data.get("_meta")
+        if isinstance(meta, dict) and isinstance(meta.get("total_feedback"), int) and meta["total_feedback"] >= 0:
+            _feedback_count = meta["total_feedback"]
+            result["_meta"] = {"total_feedback": _feedback_count}
+        for name, value in data.items():
+            if name != "_meta" and _valid_entry(value):
+                assert isinstance(value, dict)
+                result[name] = {"penalty": float(value["penalty"]), "useful": value.get("useful", 0), "not_useful": value.get("not_useful", 0)}
+    return result
 
+def save(weights: dict[str, Any], path: Path | None = None) -> None:
+    target = path or weights_file(); target.parent.mkdir(parents=True, exist_ok=True)
+    payload = load(path)
+    for name, value in weights.items():
+        if name != "_meta" and _valid_entry(value): payload[name] = value
+    meta = weights.get("_meta", {})
+    total = meta.get("total_feedback", 0) if isinstance(meta, dict) else 0
+    payload["_meta"] = {"total_feedback": int(total) if isinstance(total, int) and total >= 0 else 0}
+    fd, tmp = tempfile.mkstemp(prefix=f".{target.name}.", dir=target.parent)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(payload, stream, indent=2); stream.flush(); os.fsync(stream.fileno())
+        os.replace(tmp, target)
+    finally:
+        if os.path.exists(tmp): os.unlink(tmp)
 
-def save(weights: dict):
-    """Save weights to file."""
-    WEIGHTS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    # Ensure meta exists
-    if "_meta" not in weights:
-        weights["_meta"] = {"total_feedback": 0}
-    WEIGHTS_PATH.write_text(json.dumps(weights, indent=2))
+def apply(weights: dict[str, Any], signal_name: str, default_penalty: float) -> float:
+    entry = weights.get(signal_name)
+    value = entry.get("penalty", default_penalty) if isinstance(entry, dict) else default_penalty
+    try: numeric = float(value)
+    except (TypeError, ValueError): return default_penalty
+    return round(max(default_penalty * .5, min(default_penalty * 1.5, numeric)), 1)
 
-
-def apply(weights: dict, signal_name: str, default_penalty: float) -> float:
-    """Apply learned weight to a signal's penalty, clamped to ±50% of default."""
-    w = weights.get(signal_name)
-    if w is None:
-        return default_penalty
-    min_p = default_penalty * 0.5
-    max_p = default_penalty * 1.5
-    return round(max(min_p, min(max_p, w["penalty"])), 1)
-
-
-def record_feedback(weights: dict, signal_name: str, useful: bool) -> dict:
-    """Record a single feedback event and update the signal's weight.
-
-    Bayesian-inspired: if >70% of feedback is useful, increase weight.
-    If <40% is useful, decrease weight. Cold-start: first 5 feedback
-    events don't change weights.
-    """
-    w = weights.get(signal_name)
-    if w is None:
-        return weights
-
-    # Ensure meta
+def record_feedback(weights: dict[str, Any], signal_name: str, useful: bool) -> dict[str, Any]:
+    entry = weights.get(signal_name)
+    if not _valid_entry(entry): return weights
+    assert isinstance(entry, dict)
     meta = weights.setdefault("_meta", {"total_feedback": 0})
-    meta["total_feedback"] = meta.get("total_feedback", 0) + 1
-
-    # Cold start: first 5 feedback events ignored
-    if meta["total_feedback"] <= 5:
-        if useful:
-            w["useful"] = w.get("useful", 0) + 1
-        else:
-            w["not_useful"] = w.get("not_useful", 0) + 1
-        return weights
-
-    if useful:
-        w["useful"] = w.get("useful", 0) + 1
-    else:
-        w["not_useful"] = w.get("not_useful", 0) + 1
-
-    total = w["useful"] + w["not_useful"]
-    if total < 3:
-        return weights  # not enough data
-
-    ratio = w["useful"] / total
-    if ratio >= 0.7:
-        w["penalty"] = round(w["penalty"] * 1.1, 1)
-    elif ratio <= 0.4:
-        w["penalty"] = round(w["penalty"] * 0.85, 1)
-
+    if not isinstance(meta, dict): meta = weights["_meta"] = {"total_feedback": 0}
+    meta["total_feedback"] = int(meta.get("total_feedback", 0)) + 1
+    key = "useful" if useful else "not_useful"; entry[key] = entry.get(key, 0) + 1
+    total = entry["useful"] + entry["not_useful"]
+    if meta["total_feedback"] > 5 and total >= 3:
+        ratio = entry["useful"] / total
+        if ratio >= .7: entry["penalty"] = round(float(entry["penalty"]) * 1.1, 1)
+        elif ratio <= .4: entry["penalty"] = round(float(entry["penalty"]) * .85, 1)
     return weights
 
+def get_feedback_count() -> int: return _feedback_count
 
-def get_feedback_count() -> int:
-    return _feedback_count
+# Compatibility for consumers that imported the old constant; runtime code resolves dynamically.
+WEIGHTS_PATH = weights_file()

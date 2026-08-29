@@ -11,7 +11,7 @@ dependencies = []
 pulse = "pulse.__main__:main"
 
 [project.urls]
-repository = "https://github.com/onlyascii/hermes-pulse"
+repository = "https://github.com/dark5un/pulse"
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "pyright>=1.1", "ruff>=0.9"]

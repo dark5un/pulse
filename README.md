@@ -1,91 +1,64 @@
 # Pulse — Session Health Monitor for AI Conversations
 
-![Pulse hero](assets/pulse-hero.png)
+Pulse is a deterministic Hermes Agent plugin that analyzes conversations with evidence-based signals attributed to the user, agent, or system. It stores one replaceable analysis snapshot per session while preserving feedback and outcome ratings.
 
-Analyze your Hermes Agent conversations with evidence-based signals that attribute session quality to the human, the agent, or systemic issues. Tracks trends across sessions, compares model performance, and learns from your feedback.
+## Commands
 
-## What it does
-
-Every `/pulse` run produces a card with:
-
-- **Session summary** — turns, tokens, tool calls, model used
-- **Signals** — what went well or poorly, attributed to you or the agent
-- **Coaching tips** — actionable suggestions based on detected patterns
-- **Feedback loop** — tell Pulse when it's right or wrong, and it adjusts
-
-## Subcommands
-
-| Command | What it does |
+| Command | Description |
 |---|---|
-| `/pulse` | Analyze the current session |
-| `/pulse trends` | Last 20 sessions, per-model breakdown |
-| `/pulse models` | Compare performance across all models |
-| `/pulse useful` | Mark last analysis as accurate |
-| `/pulse not-useful` | Mark last analysis as inaccurate |
-| `/pulse yes` / `/pulse no` | Report whether the session solved your problem |
+| `/pulse` | Analyze the current/latest session |
+| `/pulse trends` | Show the latest 20 analyses |
+| `/pulse models` | Compare analyzed models |
+| `/pulse useful` / `/pulse not-useful` | Rate the latest analysis (idempotent) |
+| `/pulse yes` / `/pulse no` | Rate whether the session solved the problem |
+
+The CLI supports `--file`, `--session`, and `--json`. `--deep` is reserved and explicitly **not implemented**; Pulse currently performs deterministic analysis only.
 
 ## Installation
 
-### 1. Install the pulse project
+From a checkout:
 
 ```bash
-git clone git@github.com:dark5un/pulse.git ~/workspace/pulse
-cd ~/workspace/pulse
-uv sync --extra dev
-```
-
-### 2. Install the Hermes plugin
-
-```bash
-mkdir -p ~/.hermes/plugins/pulse
-cp ~/workspace/pulse/src/pulse/plugin.yaml ~/.hermes/plugins/pulse/
-ln -s ~/workspace/pulse/src/pulse/plugin.py ~/.hermes/plugins/pulse/__init__.py
-```
-
-### 3. Enable the plugin
-
-```bash
+git clone https://github.com/dark5un/pulse.git ~/workspace/github.com/dark5un/pulse
+cd ~/workspace/github.com/dark5un/pulse
+PULSE_SOURCE_DIR="$PWD" bash install.sh
 hermes plugins enable pulse
 ```
 
-Then restart Hermes (`/exit` then `hermes`).
+The installer places the native Hermes manifest and `__init__.py` under `${HERMES_HOME:-$HOME/.hermes}/plugins/pulse`. It can be rerun safely. `uninstall.sh` removes the plugin and learned weights but deliberately retains analysis data in `state.db`.
+
+## Data and semantics
+
+- Hermes state is profile-safe: `HERMES_HOME` selects `state.db`, `plugins/`, and `pulse_weights.json`; otherwise `$HOME/.hermes` is used.
+- A session is analyzed only when it has **at least 5 total messages and at least 3 user turns**.
+- Scores are clamped to 0–100. User, agent, and system/other penalties are calculated separately; system/other penalties contribute to `other_blame_pct`.
+- Re-analysis updates analysis columns with an explicit SQLite upsert, preserving `feedback_rating` and `outcome_rating`.
+- Repeating a feedback command reports that the result is already rated and does not add another learned-weight event. Rating changes are rejected to preserve event accounting.
+- Malformed session tool-call JSON is ignored safely. Explicit `tool_name` is preserved and used for runtime provenance.
 
 ## Development
 
 ```bash
-cd ~/workspace/pulse
-uv run pytest tests/ -q      # 45 tests
-ruff check src/ tests/        # Lint
-pyright src/pulse/ tests/     # Type check
+uv sync --extra dev
+uv run ruff check src/ tests/
+uv run pyright src/pulse/ tests/
+uv run pytest tests/ -q
 ```
 
-## Signals
-
-| Signal | Detects | Attributable to |
-|---|---|---|
-| `correction_chain` | 3+ consecutive corrections | user |
-| `frustration` | Frustration keywords across turns | user |
-| `goal_drift` | Multiple direction changes | user |
-| `vague_prompts` | Low-specificity prompts | user |
-| `shrinking_prompts` | Prompts getting much shorter | user |
-| `reasoning_loop` | Agent self-correcting in place | agent |
-| `premature_stop` | Agent asking to stop mid-task | agent |
-| `tool_repetition` | Same tool called repeatedly | agent |
-| `tool_error` | Explicit tool failures | agent |
-| `shallow_read` | Low Read:Edit ratio | agent |
-| `low_diversity` | Narrow tool repertoire | agent |
+Tests use an autouse temporary `HERMES_HOME`; they never write the developer's real Hermes state. The native plugin contract is `plugin.yaml` plus `__init__.py` exposing `register(ctx)`, as documented by Hermes Agent.
 
 ## Architecture
 
-- **Signals**: deterministic heuristics in `src/pulse/signals.py` (11 detectors)
-- **Weights**: Bayesian feedback loop in `src/pulse/weights.py`
-- **Plugin**: Hermes slash command in `src/pulse/plugin.py`
-- **Storage**: `pulse_results` table in Hermes `state.db`
+- `src/pulse/signals.py` — pure deterministic detectors
+- `src/pulse/task_type.py` — precedence-based classification
+- `src/pulse/session_store.py` — shared defensive SQLite loader
+- `src/pulse/weights.py` — validated atomic learned state
+- `src/pulse/plugin.py` — slash command, persistence, and presentation
 
 ## License
 
 MIT
 
----
+Repository: https://github.com/dark5un/pulse
 
-**This is the first iteration of many.** Every signal is a heuristic, every weight is a starting guess, every recommendation is provisional. The system learns from feedback — tell it when it's wrong with `/pulse not-useful`. The aim is for Pulse to become more clever over time: to recognise failure modes before they compound, to build a personal model of how you work, and to suggest what to do differently next time. The current codebase is step one.
+Every signal is a heuristic and should be treated as provisional.

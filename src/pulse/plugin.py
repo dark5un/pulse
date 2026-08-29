@@ -21,6 +21,8 @@ pulse_src = Path(__file__).resolve().parent.parent.parent / "src"
 if str(pulse_src) not in sys.path:
     sys.path.insert(0, str(pulse_src))
 
+from pulse.paths import state_db
+from pulse.session_store import load_session
 from pulse.signals import extract_signals
 from pulse.weights import apply as apply_weight
 from pulse.weights import get_feedback_count, record_feedback
@@ -47,9 +49,10 @@ CREATE TABLE IF NOT EXISTS pulse_results (
 """
 
 
-def _get_db() -> sqlite3.Connection:
+def _get_db(db_path: Path | None = None) -> sqlite3.Connection:
     """Open state.db, ensuring the pulse_results table exists."""
-    db = Path.home() / ".hermes" / "state.db"
+    db = db_path or state_db()
+    db.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db))
     conn.row_factory = sqlite3.Row
     conn.execute(TABLE_DDL)
@@ -57,8 +60,10 @@ def _get_db() -> sqlite3.Connection:
     for col, col_type in [("model", "TEXT"), ("task_type", "TEXT"), ("outcome_rating", "INTEGER")]:
         try:
             conn.execute(f"ALTER TABLE pulse_results ADD COLUMN {col} {col_type}")
-        except sqlite3.OperationalError:
-            pass  # column already exists
+        except sqlite3.OperationalError as exc:
+            if "duplicate column name" not in str(exc).lower():
+                conn.close()
+                raise
     conn.commit()
     return conn
 
@@ -68,7 +73,8 @@ def _write_result(conn: sqlite3.Connection, session_id: str, model: str,
     """Write a pulse analysis result to state.db."""
     user_penalty = sum(s["penalty"] for s in signals_flat if s["target"] == "user")
     agent_penalty = sum(s["penalty"] for s in signals_flat if s["target"] == "agent")
-    total_penalty = user_penalty + agent_penalty
+    other_penalty = sum(s["penalty"] for s in signals_flat if s["target"] not in {"user", "agent"})
+    total_penalty = user_penalty + agent_penalty + other_penalty
 
     if total_penalty == 0 or total_penalty <= 15:
         status = "green"
@@ -80,16 +86,19 @@ def _write_result(conn: sqlite3.Connection, session_id: str, model: str,
     total = max(total_penalty, 1)
     user_blame = round(user_penalty / total * 100) if total_penalty > 0 else 0
     agent_blame = round(agent_penalty / total * 100) if total_penalty > 0 else 0
-    other_blame = max(0, 100 - user_blame - agent_blame)
+    other_blame = round(other_penalty / total * 100) if total_penalty > 0 else 0
+    if total_penalty == 0:
+        other_blame = 0
 
-    overall = (100 - user_penalty + 100 - agent_penalty) // 2
+    overall = max(0, min(100, round(100 - total_penalty)))
 
     conn.execute("""
-        INSERT OR REPLACE INTO pulse_results
+        INSERT INTO pulse_results
             (session_id, run_at, run_mode, overall_score, status,
              user_blame_pct, agent_blame_pct, other_blame_pct,
              model, task_type, signal_details, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_id) DO UPDATE SET run_at=excluded.run_at, run_mode=excluded.run_mode, overall_score=excluded.overall_score, status=excluded.status, user_blame_pct=excluded.user_blame_pct, agent_blame_pct=excluded.agent_blame_pct, other_blame_pct=excluded.other_blame_pct, model=excluded.model, task_type=excluded.task_type, signal_details=excluded.signal_details
     """, (
         session_id, time.time(), "deterministic", overall, status,
         user_blame, agent_blame, other_blame,
@@ -99,57 +108,8 @@ def _write_result(conn: sqlite3.Connection, session_id: str, model: str,
 
 
 def _load_session(session_id: str | None = None) -> tuple[list[dict], str, str]:
-    """Load messages from state.db. Returns (messages, session_id, model_name)."""
-    db = Path.home() / ".hermes" / "state.db"
-    if not db.exists():
-        return [], "", ""
-
-    conn = sqlite3.connect(str(db))
-    conn.row_factory = sqlite3.Row
-
-    if session_id:
-        sid = session_id
-    else:
-        row = conn.execute(
-            "SELECT id FROM sessions ORDER BY last_activity_at DESC LIMIT 1"
-        ).fetchone()
-        if not row:
-            conn.close()
-            return [], "", ""
-        sid = row["id"]
-
-    # Get model name
-    sess = conn.execute(
-        "SELECT model FROM sessions WHERE id=?",
-        (sid,)
-    ).fetchone()
-    model = sess["model"] if sess and sess["model"] else "unknown"
-
-    rows = conn.execute(
-        "SELECT role, content, tool_calls, tool_name FROM messages WHERE session_id=? ORDER BY id",
-        (sid,)
-    ).fetchall()
-    conn.close()
-
-    msgs = []
-    for r in rows:
-        msg = {"role": r["role"], "content": r["content"] or ""}
-        tc = r["tool_calls"]
-        if tc:
-            try:
-                msg["tool_calls"] = json.loads(tc)
-            except json.JSONDecodeError:
-                pass
-        tn = r["tool_name"]
-        if tn:
-            tc_list = msg.get("tool_calls", [])
-            if not isinstance(tc_list, list):
-                tc_list = []
-            tc_list.append({"function": {"name": tn}})
-            msg["tool_calls"] = tc_list
-        msgs.append(msg)
-    return msgs, sid, model
-
+    """Load through the shared defensive session store."""
+    return load_session(session_id)
 
 def _shorten_model(name: str) -> str:
     """Shorten a model name for display."""
@@ -395,56 +355,37 @@ def _handle_pulse(raw_args: str) -> str:
     if args == "models":
         return _handle_models()
 
-    if args == "useful":
+    if args in {"useful", "not-useful", "not useful"}:
+        useful = args == "useful"
         conn = _get_db()
-        row = conn.execute(
-            "SELECT session_id, signal_details FROM pulse_results ORDER BY run_at DESC LIMIT 1"
-        ).fetchone()
+        row = conn.execute("SELECT session_id, signal_details, feedback_rating FROM pulse_results ORDER BY run_at DESC LIMIT 1").fetchone()
         if not row:
             conn.close()
             return "No pulse results to rate. Run /pulse first."
-        conn.execute("UPDATE pulse_results SET feedback_rating = 1 WHERE session_id = ?", (row["session_id"],))
-        conn.commit()
-        conn.close()
+        if row["feedback_rating"] is not None:
+            conn.close()
+            return "This pulse result is already rated; feedback was not counted again."
+        conn.execute("UPDATE pulse_results SET feedback_rating = ? WHERE session_id = ?", (1 if useful else -1, row["session_id"]))
+        conn.commit(); conn.close()
 
         weights = load_weights()
         if row["signal_details"]:
             try:
                 sigs = json.loads(row["signal_details"])
-                for s in sigs:
-                    if s["penalty"] > 0:
-                        weights = record_feedback(weights, s["name"], useful=True)
-            except (json.JSONDecodeError, KeyError):
+                for signal in sigs:
+                    if isinstance(signal, dict) and signal.get("penalty", 0) > 0:
+                        weights = record_feedback(weights, signal.get("name", ""), useful)
+            except (json.JSONDecodeError, TypeError):
                 pass
         save_weights(weights)
-        return "  Thanks! Weights will adjust over time. (useful)"
-
-    if args == "not-useful" or args == "not useful":
-        conn = _get_db()
-        row = conn.execute(
-            "SELECT session_id, signal_details FROM pulse_results ORDER BY run_at DESC LIMIT 1"
-        ).fetchone()
-        if not row:
-            conn.close()
-            return "No pulse results to rate. Run /pulse first."
-        conn.execute("UPDATE pulse_results SET feedback_rating = -1 WHERE session_id = ?", (row["session_id"],))
-        conn.commit()
-        conn.close()
-
-        weights = load_weights()
-        if row["signal_details"]:
-            try:
-                sigs = json.loads(row["signal_details"])
-                for s in sigs:
-                    if s["penalty"] > 0:
-                        weights = record_feedback(weights, s["name"], useful=False)
-            except (json.JSONDecodeError, KeyError):
-                pass
-        save_weights(weights)
-        return "  Thanks! Weights will adjust over time. (not useful)"
+        return "  Thanks! Weights will adjust over time. (useful)" if useful else "  Thanks! Weights will adjust over time. (not useful)"
 
     if args in ("yes", "y"):
         conn = _get_db()
+        row = conn.execute("SELECT session_id FROM pulse_results ORDER BY run_at DESC LIMIT 1").fetchone()
+        if not row:
+            conn.close()
+            return "No pulse results to update. Run /pulse first."
         conn.execute(
             "UPDATE pulse_results SET outcome_rating = 1 WHERE session_id = (SELECT session_id FROM pulse_results ORDER BY run_at DESC LIMIT 1)"
         )
@@ -454,6 +395,10 @@ def _handle_pulse(raw_args: str) -> str:
 
     if args in ("no", "n"):
         conn = _get_db()
+        row = conn.execute("SELECT session_id FROM pulse_results ORDER BY run_at DESC LIMIT 1").fetchone()
+        if not row:
+            conn.close()
+            return "No pulse results to update. Run /pulse first."
         conn.execute(
             "UPDATE pulse_results SET outcome_rating = 0 WHERE session_id = (SELECT session_id FROM pulse_results ORDER BY run_at DESC LIMIT 1)"
         )
@@ -461,8 +406,10 @@ def _handle_pulse(raw_args: str) -> str:
         conn.close()
         return "  Noted. Outcome recorded as unresolved."
 
-    # Main pulse analysis
-    session_id = args if args and not args.startswith("--") else None
+    # Main pulse analysis; slash commands never reinterpret unsupported flags.
+    if args.startswith("-") or (args and args not in {"trends", "trend", "models"} and " " in args):
+        return "Unsupported /pulse option. Supported: trends, models, useful, not-useful, yes, no, or a session ID."
+    session_id = args or None
     messages, sid, model = _load_session(session_id)
 
     if not messages:
