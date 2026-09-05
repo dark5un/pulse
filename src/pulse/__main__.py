@@ -39,6 +39,9 @@ def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "leaderboard":
         from pulse.leaderboard_cli import main as leaderboard_main
         raise SystemExit(leaderboard_main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "replay":
+        from pulse.replay_cli import main as replay_main
+        raise SystemExit(replay_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "portability":
         from pulse.portability_cli import main as portability_main
         raise SystemExit(portability_main(sys.argv[2:]))

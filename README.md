@@ -44,6 +44,16 @@ A weekly cron (`pulse-session-gym-weekly`, Mondays 09:00) rescores the corpus
 plus the week's new traces and reports worst session, total cost, and top
 recurring signal.
 
+```bash
+uv run pulse replay --corpus corpus [--live] [--timeout 300] [--jobs 4] [--json]
+```
+
+Replays every `*.py` trace (dry-run from cache by default; `--live`
+executes real LLM calls) with fan-out, per-trace timeout, and a
+PASS/FAIL/TIMEOUT table. Exit 0 when all replay clean, 1 otherwise.
+Model-change loop: replay → `build_corpus.py --traces corpus --out corpus`
+(refresh mode rescues same-dir) → `pulse leaderboard` → `pulse_gate.py`.
+
 ### Leaderboard
 
 ```bash
