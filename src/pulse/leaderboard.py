@@ -14,8 +14,8 @@ def _entry(rec: dict) -> dict:
     }
 
 
-def rank_traces(records: list[dict]) -> dict[str, dict[str, list[dict]]]:
-    """Group records by task_type; top/bottom 3 each (ties: lower cost first)."""
+def rank_traces(records: list[dict], top: int = 3) -> dict[str, dict[str, list[dict]]]:
+    """Group records by task_type; top/bottom N each (ties: lower cost first)."""
     if not records:
         return {}
     groups: dict[str, list[dict]] = {}
@@ -25,7 +25,7 @@ def rank_traces(records: list[dict]) -> dict[str, dict[str, list[dict]]]:
     for task, recs in groups.items():
         by_best = sorted(recs, key=lambda r: (-r.get("score", 0), r.get("cost_usd", 0.0)))
         by_worst = sorted(recs, key=lambda r: (r.get("score", 0), r.get("cost_usd", 0.0)))
-        out[task] = {"best": [_entry(r) for r in by_best[:3]], "worst": [_entry(r) for r in by_worst[:3]]}
+        out[task] = {"best": [_entry(r) for r in by_best[:top]], "worst": [_entry(r) for r in by_worst[:top]]}
     return out
 
 

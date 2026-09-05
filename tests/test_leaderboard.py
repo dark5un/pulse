@@ -46,3 +46,10 @@ def test_groups_by_task_type():
     recs = [_rec("a", "m1", 80, task="coding"), _rec("b", "m1", 70, task="brainstorm")]
     out = rank_traces(recs)
     assert set(out) == {"coding", "brainstorm"}
+
+
+def test_top_n_parameter():
+    recs = [_rec(f"s{i}", "m1", 90 - i) for i in range(7)]
+    out = rank_traces(recs, top=2)
+    assert len(out["coding"]["best"]) == 2
+    assert len(out["coding"]["worst"]) == 2

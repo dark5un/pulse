@@ -37,3 +37,15 @@ def test_leaderboard_live_fallback_scores_py_without_sidecar(tmp_path):
 
     recs = load_corpus_records(str(tmp_path))
     assert len(recs) == 1 and "score" in recs[0]
+
+
+def test_task_and_top_filters():
+    from pulse.leaderboard_cli import load_corpus_records, render_leaderboard
+
+    recs = load_corpus_records("corpus")
+    tasks = {r.get("task_type") for r in recs}
+    task = min(str(t) for t in tasks)
+    out = render_leaderboard(recs, task=task, top=1)
+    assert f"== {task}" in out
+    for other in tasks - {task}:
+        assert f"== {other}" not in out
