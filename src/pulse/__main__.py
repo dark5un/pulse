@@ -45,6 +45,9 @@ def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "compare":
         from pulse.compare_cli import main as compare_main
         raise SystemExit(compare_main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "skills":
+        from pulse.skills_cli import main as skills_main
+        raise SystemExit(skills_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "portability":
         from pulse.portability_cli import main as portability_main
         raise SystemExit(portability_main(sys.argv[2:]))
