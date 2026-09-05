@@ -214,14 +214,17 @@ step indices) for quarantine decisions.
 ### Cost attribution
 
 ```bash
-uv run pulse costs --corpus DIR --join sessions.csv [--group-by team|task] [--json]
+uv run pulse costs --corpus DIR --join sessions.csv [--group-by team|task|tag] [--json]
 ```
 
 Join-side rollup: `sessions.csv` maps `session_id → team` (zero capture
 change — works for teams with a session registry). Sums, per-task split,
 sessions per team; unmapped sessions land in an `unmapped` bucket, never
-silently dropped. Capture-side tags (`HERMES_SESSION_TAGS` at trace time)
-remain a separate unroll change.
+silently dropped. Capture-side: set `UNROLL_SESSION_TAGS="team-a,feat-x"`
+(`HERMES_SESSION_TAGS` also read as legacy fallback) at session start —
+unroll writes a `SESSION_TAGS` constant into the trace, the sidecar carries
+`session_tags`, and `--group-by tag` groups by sorted tag set (`untagged`
+when empty; multi-tag sessions count once, never double).
 
 ## Native integrations
 
