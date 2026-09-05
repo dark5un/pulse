@@ -17,12 +17,12 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: uv sync --extra dev
       - run: uv run ruff check src/ tests/
-      - run: uv run pyright src/pulse/ tests/
+      - run: uv run pyright
       - run: uv run pytest tests/ -q
       # Gate: fail when zero tests are collected (the condition that once
       # produced the false "Pulse has no tests" conclusion).
       - run: uv run pytest tests/ --collect-only -q | tail -1 | grep -qv "no tests"
-      - run: python3.11 -m compileall -q src tests || python -m compileall -q src tests
+      - run: python -m compileall -q src tests
 
   pi:
     runs-on: ubuntu-latest
