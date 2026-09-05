@@ -8,6 +8,22 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Trace loader hardening (PU-2): new `TraceSchemaError(ValueError)` naming
+  the offending field — `COST`/`USAGE`/`STATE_GRAPH`/`DEPENDENCIES` must be
+  mappings, `TIMELINE` a list of mappings, skills/tags string lists,
+  `cost_usd` finite numeric. Files over `MAX_TRACE_BYTES` (8 MiB) and
+  literals over `MAX_AST_NODES` nodes / `MAX_LITERAL_DEPTH` depth are
+  rejected before `literal_eval`. Falsy-but-wrong values (`COST = 1.0`,
+  `TIMELINE = 1`) can no longer slip through `or {}` defaults.
+- Judge verdict validation (PU-3): `parse_verdict_text()` now returns a
+  `VerdictParseResult(signals, diagnostics)` — finding must be `yes`/`no`
+  (`no` with penalty is dropped), penalties must be finite, `penalty > 0`
+  needs non-empty bounded evidence, duplicate signals merge deterministically
+  (highest penalty wins, diagnostic emitted), evidence must be a bounded
+  list of bounded strings. No invalid verdict can carry a penalty into
+  scoring; `detect_deep()` still returns a plain signal list.
+- `__main__.py`: hoist `bundle = None` and narrow before use (Pyright-clean
+  without suppression).
 - `pulse verify` no longer executes the trace: the `subprocess.run` call is
   deleted and verification is a structural inspect (parses via the safe AST
   loader, required constants present, sha256 matches `run-manifest.json`,

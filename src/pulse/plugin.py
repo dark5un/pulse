@@ -398,7 +398,8 @@ def _handle_deep() -> str:
             "  Deterministic result above still stands.\n"
             "───────────────────────────────────────────────"
         )
-    deep_signals = parse_verdict_text(res.text)
+    deep_result = parse_verdict_text(res.text)
+    deep_signals = deep_result.signals
     for s in deep_signals:
         adjusted = apply_weight(weights, s.name, s.penalty)
         signals_flat.append({

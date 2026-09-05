@@ -87,6 +87,7 @@ def main() -> None:
     args = parser.parse_args()
     messages: list[dict] = []
     unroll_meta: dict = {}
+    bundle = None
     if args.unroll:
         from pulse.unroll_loader import bundle_to_messages, load_unroll_trace
 
@@ -114,7 +115,7 @@ def main() -> None:
         raise SystemExit(1)
     result = extract_signals(messages)
     unroll_signals: list = []
-    if args.unroll:
+    if args.unroll and bundle is not None:
         from pulse.signals_unroll import (
             detect_cost,
             detect_latency,
