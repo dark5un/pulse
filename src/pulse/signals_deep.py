@@ -44,8 +44,17 @@ def build_prompt(messages: list[dict]) -> str:
 
 def detect_deep(messages: list[dict], backend: JudgeBackend) -> list[Signal]:
     try:
-        payload = json.loads(backend.judge(build_prompt(messages)).text)
-    except Exception:  # noqa: BLE001 — judge/network/parse failure reads as no verdicts
+        text = backend.judge(build_prompt(messages)).text
+    except Exception:  # noqa: BLE001 — judge/network failure reads as no verdicts
+        return []
+    return parse_verdict_text(text)
+
+
+def parse_verdict_text(text: str) -> list[Signal]:
+    """Parse a judge JSON payload into Signals. Unparseable -> [] (never fabricate)."""
+    try:
+        payload = json.loads(text)
+    except Exception:  # noqa: BLE001 — malformed judge output reads as no verdicts
         return []
     if not isinstance(payload, dict) or payload.get("prompt_version") != PROMPT_VERSION:
         return []
@@ -76,4 +85,4 @@ def detect_deep(messages: list[dict], backend: JudgeBackend) -> list[Signal]:
     return signals
 
 
-__all__ = ["DEEP_SIGNALS", "PROMPT_VERSION", "build_prompt", "detect_deep"]
+__all__ = ["DEEP_SIGNALS", "PROMPT_VERSION", "build_prompt", "detect_deep", "parse_verdict_text"]

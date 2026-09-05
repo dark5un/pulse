@@ -1,10 +1,13 @@
 """Pulse plugin for Hermes — /pulse slash command.
 
 Analyzes the current session, stores results in state.db,
-supports feedback loop, trend tracking, and model comparison.
+supports feedback loop, trend tracking, model comparison, and
+opt-in LLM-judge deep analysis (``/pulse deep`` — one extra model call,
+billed to the active model).
 
 Subcommands:
   /pulse              Analyze current session
+  /pulse deep         Deterministic analysis + LLM judge (costs tokens!)
   /pulse trends       Show trends over last 20 sessions
   /pulse models       Compare performance across models
   /pulse useful       Mark last signal as useful
@@ -74,7 +77,8 @@ def _get_db(db_path: Path | None = None) -> sqlite3.Connection:
 
 
 def _write_result(conn: sqlite3.Connection, session_id: str, model: str,
-                  task_type: str, result, signals_flat: list[dict]):
+                  task_type: str, result, signals_flat: list[dict],
+                  run_mode: str = "deterministic"):
     """Write a pulse analysis result to state.db."""
     user_penalty = sum(s["penalty"] for s in signals_flat if s["target"] == "user")
     agent_penalty = sum(s["penalty"] for s in signals_flat if s["target"] == "agent")
@@ -89,7 +93,7 @@ def _write_result(conn: sqlite3.Connection, session_id: str, model: str,
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(session_id) DO UPDATE SET run_at=excluded.run_at, run_mode=excluded.run_mode, overall_score=excluded.overall_score, status=excluded.status, user_blame_pct=excluded.user_blame_pct, agent_blame_pct=excluded.agent_blame_pct, other_blame_pct=excluded.other_blame_pct, model=excluded.model, task_type=excluded.task_type, signal_details=excluded.signal_details
     """, (
-        session_id, time.time(), "deterministic", breakdown.score, breakdown.status,
+        session_id, time.time(), run_mode, breakdown.score, breakdown.status,
         breakdown.attribution["user"], breakdown.attribution["agent"], breakdown.attribution["other"],
         model, task_type, json.dumps(signals_flat), time.time(),
     ))
@@ -333,11 +337,106 @@ def _handle_models() -> str:
     return "\n".join(lines)
 
 
+_LLM_CTX = None  # stashed PluginContext — slash handlers receive only raw_args
+
+
+def _handle_deep() -> str:
+    """Deterministic analysis + one host-owned LLM-judge call (costs tokens!).
+
+    Runs on the user's ACTIVE model via ctx.llm — no key setup, billed to
+    whatever Hermes is using. Judge failure is loud (error string + the
+    deterministic card), never a silent fallback.
+    """
+    import time
+
+    from pulse.signals_deep import build_prompt, parse_verdict_text
+
+    t0 = time.time()
+    messages, sid, model = _load_session(None)
+    if not messages:
+        return "No messages found. Try /pulse deep from an active session."
+    weights = load_weights()
+    result = extract_signals(messages)
+    task_type = result.metrics.get("task_type", "chat")
+    if result.skipped_reason:
+        n = len(messages)
+        u = result.metrics.get("user_turns", 0)
+        return f"Session too short to analyze ({n} msgs, {u} user turns): {result.skipped_reason}"
+    signals_flat = []
+    for s in result.signals:
+        adjusted = apply_weight(weights, s.name, s.penalty)
+        signals_flat.append({
+            "name": s.name, "target": s.target, "severity": s.severity,
+            "penalty": adjusted, "label": s.label,
+            "evidence": s.evidence[:2] if s.evidence else [],
+        })
+    runtime_logs_serialised = _serialise_runtime_logs(result)
+    llm = getattr(_LLM_CTX, "llm", None) if _LLM_CTX is not None else None
+    if llm is None:
+        card = _render_card(result, signals_flat, task_type, model,
+                            runtime_logs=runtime_logs_serialised)
+        return card + (
+            "\n── Judge ──────────────────────────────────────\n"
+            "  Deep analysis not available: host LLM lane missing.\n"
+            "  Deterministic result above.\n"
+            "───────────────────────────────────────────────"
+        )
+    prompt = build_prompt(messages)
+    try:
+        res = llm.complete_structured(
+            instructions="You are Pulse, a session-quality judge. Reply with exactly the requested JSON shape.",
+            input=[{"type": "text", "text": prompt}],
+            json_mode=True, temperature=0.0, max_tokens=800, timeout=120,
+            purpose="pulse-deep-judge",
+        )
+    except Exception as e:  # noqa: BLE001 — judge failure must surface, never swallow
+        card = _render_card(result, signals_flat, task_type, model,
+                            runtime_logs=runtime_logs_serialised)
+        return card + (
+            "\n── Judge ──────────────────────────────────────\n"
+            f"  Judge failed: {e}.\n"
+            "  Deterministic result above still stands.\n"
+            "───────────────────────────────────────────────"
+        )
+    deep_signals = parse_verdict_text(res.text)
+    for s in deep_signals:
+        adjusted = apply_weight(weights, s.name, s.penalty)
+        signals_flat.append({
+            "name": s.name, "target": s.target, "severity": s.severity,
+            "penalty": adjusted, "label": s.label,
+            "evidence": s.evidence[:2] if s.evidence else [],
+        })
+    usage = getattr(res, "usage", None)
+    in_tok = getattr(usage, "input_tokens", 0) or 0
+    out_tok = getattr(usage, "output_tokens", 0) or 0
+    total = (getattr(usage, "total_tokens", 0) or 0) or (in_tok + out_tok)
+    cost = getattr(usage, "cost_usd", None)
+    elapsed = time.time() - t0
+    conn = _get_db()
+    _write_result(conn, sid, model, task_type, result, signals_flat, run_mode="deep")
+    conn.close()
+    card = _render_card(result, signals_flat, task_type, model,
+                        runtime_logs=runtime_logs_serialised)
+    judge_lines = [
+        "── Judge ──────────────────────────────────────",
+        f"  Model: {getattr(res, 'model', '?')} ({getattr(res, 'provider', '?')})",
+        f"  Verdicts: {', '.join(s.name for s in deep_signals) or 'no findings'}",
+        f"  Cost: {total} tokens ({in_tok} in / {out_tok} out)"
+        + (f", ~${cost:.4f}" if cost else "")
+        + f", {elapsed:.0f}s — billed to your active model",
+        "  Provisional until agreement-gated (kappa>=0.6, n>=50).",
+        "───────────────────────────────────────────────",
+    ]
+    return card + "\n" + "\n".join(judge_lines)
+
+
 def _handle_pulse(raw_args: str) -> str:
     """Run pulse analysis and return formatted card with feedback prompt."""
     args = raw_args.strip()
 
     # Subcommands
+    if args == "deep":
+        return _handle_deep()
     if args in ("trends", "trend"):
         return _handle_trends()
 
@@ -397,7 +496,7 @@ def _handle_pulse(raw_args: str) -> str:
 
     # Main pulse analysis; slash commands never reinterpret unsupported flags.
     if args.startswith("-") or (args and args not in {"trends", "trend", "models"} and " " in args):
-        return "Unsupported /pulse option. Supported: trends, models, useful, not-useful, yes, no, or a session ID."
+        return "Unsupported /pulse option. Supported: deep, trends, models, useful, not-useful, yes, no, or a session ID."
     session_id = args or None
     messages, sid, model = _load_session(session_id)
 
@@ -440,11 +539,13 @@ def _handle_pulse(raw_args: str) -> str:
 
 def register(ctx):
     """Register the /pulse slash command."""
+    global _LLM_CTX
+    _LLM_CTX = ctx
     _get_db().close()
 
     ctx.register_command(
         "pulse",
         handler=_handle_pulse,
-        description="Analyze session quality. Subcommands: trends, models, useful, not-useful, yes, no",
-        args_hint="[trends|models|useful|not-useful|yes|no]",
+        description="Analyze session quality. Subcommands: deep, trends, models, useful, not-useful, yes, no",
+        args_hint="[deep|trends|models|useful|not-useful|yes|no]",
     )

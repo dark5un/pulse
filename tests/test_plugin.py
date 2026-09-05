@@ -143,3 +143,140 @@ def test_pulse_imports_work():
     assert extract_signals is not None
     assert Signal is not None
     assert SignalResult is not None
+
+# ─── /pulse deep via ctx.llm ─────────────────────────────────────────────
+
+import json as _json
+
+
+class _FakeUsage:
+    input_tokens = 120
+    output_tokens = 30
+    total_tokens = 150
+    cost_usd = 0.001
+
+
+class _FakeLlmResult:
+    text = _json.dumps({"prompt_version": "v1", "verdicts": [
+        {"signal": "goal_completion", "finding": "yes", "penalty": 0,
+         "evidence": "task done"},
+    ]})
+    provider = "openrouter"
+    model = "meta/muse-spark-1.3"
+    usage = _FakeUsage()
+
+
+class _FakeLlm:
+    def __init__(self):
+        self.calls = []
+
+    def complete_structured(self, **kw):
+        self.calls.append(kw)
+        return _FakeLlmResult()
+
+
+class _FakeCtxWithLlm:
+    def __init__(self):
+        self.llm = _FakeLlm()
+
+    def register_command(self, name, handler, description, args_hint=""):
+        self.handler = handler
+
+
+def _seed_session(monkeypatch, tmp_path):
+    """Seed a state.db session with enough turns to pass the minimum guard.
+
+    NOTE: conftest's autouse isolated_hermes_home already points HERMES_HOME
+    at tmp_path/hermes — seed THERE, not tmp_path root.
+    """
+    import sqlite3
+    import time
+
+    from pulse.paths import state_db
+
+    db = state_db()
+    db.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(db))
+    msgs = []
+    for i in range(3):
+        msgs.append(("user", f"user question {i} about python code please"))
+        msgs.append(("assistant", f"assistant answer {i} with enough detail here"))
+    msgs.append(("user", "thanks, that solves it"))
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS sessions "
+        "(id TEXT PRIMARY KEY, model TEXT, last_activity_at REAL)"
+    )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS messages "
+        "(id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, role TEXT, "
+        "content TEXT, tool_calls TEXT, tool_name TEXT)"
+    )
+    conn.execute(
+        "INSERT OR REPLACE INTO sessions VALUES (?, ?, ?)",
+        ("sess-deep-1", "m", time.time()),
+    )
+    conn.executemany(
+        "INSERT INTO messages (session_id, role, content) VALUES (?, ?, ?)",
+        [("sess-deep-1", role, content) for role, content in msgs],
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_pulse_deep_runs_judge_and_reports_tokens(monkeypatch, tmp_path):
+    ctx = _FakeCtxWithLlm()
+    plugin.register(ctx)
+    _seed_session(monkeypatch, tmp_path)
+    out = ctx.handler("deep")
+    assert "judge" in out.lower()
+    assert "150" in out  # total tokens reported
+    assert len(ctx.llm.calls) == 1
+    call = ctx.llm.calls[0]
+    assert call.get("temperature") == 0.0
+    assert call.get("json_mode") is True
+
+
+def test_pulse_deep_without_llm_lane_explains(monkeypatch, tmp_path):
+    class _NoLlmCtx:
+        def register_command(self, name, handler, description, args_hint=""):
+            self.handler = handler
+
+    ctx = _NoLlmCtx()
+    plugin.register(ctx)
+    _seed_session(monkeypatch, tmp_path)
+    out = ctx.handler("deep")
+    assert "not available" in out.lower()
+
+
+def test_pulse_deep_judge_failure_is_loud(monkeypatch, tmp_path):
+    class _BoomLlm:
+        def complete_structured(self, **kw):
+            raise RuntimeError("provider exploded")
+
+    class _BoomCtx:
+        llm = _BoomLlm()
+
+        def register_command(self, name, handler, description, args_hint=""):
+            self.handler = handler
+
+    ctx = _BoomCtx()
+    plugin.register(ctx)
+    _seed_session(monkeypatch, tmp_path)
+    out = ctx.handler("deep")
+    assert "judge failed" in out.lower()
+    assert "deterministic" in out.lower()  # deterministic result still shown
+
+
+def test_pulse_deep_persists_run_mode(monkeypatch, tmp_path):
+    import sqlite3
+
+    from pulse.paths import state_db
+
+    ctx = _FakeCtxWithLlm()
+    plugin.register(ctx)
+    _seed_session(monkeypatch, tmp_path)
+    ctx.handler("deep")
+    conn = sqlite3.connect(str(state_db()))
+    row = conn.execute("SELECT run_mode FROM pulse_results WHERE session_id='sess-deep-1'").fetchone()
+    conn.close()
+    assert row[0] == "deep"
