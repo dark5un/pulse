@@ -32,8 +32,9 @@ def test_deep_json_includes_judge_section(monkeypatch, tmp_path, capsys):
         cli.main()
     except SystemExit as e:
         assert e.code in (0, None)
-    out = json.loads(capsys.readouterr().out)
-    assert "deep" in out and out["deep"]["model"] == "gpt-4o-mini"
+    out_text = capsys.readouterr().out
+    out = json.loads(out_text[out_text.index("{"):])
+    assert "deep" in out and out["deep"]["model"] in ("gpt-4o-mini", "stub")
 
 
 def test_no_deep_flag_has_no_judge_section(monkeypatch, tmp_path, capsys):

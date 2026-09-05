@@ -48,9 +48,15 @@ silent fallback. `--json` gains a `deep` key (model, signal names,
 input/output tokens).
 
 Config (plugin-prefixed first): `PULSE_API_KEY` → `OPENAI_API_KEY` →
-`HERMES_API_KEY` → `~/.hermes/.env`; model override `PULSE_JUDGE_MODEL`,
+`HERMES_API_KEY` → `$HERMES_HOME/.env`; model override `PULSE_JUDGE_MODEL`,
 base URL `PULSE_JUDGE_BASE_URL`. Cost envelope ~$0.02–0.05/session
 (gpt-4o-mini); opt-in only — deterministic mode stays the default.
+
+Privacy: `--deep` prints what it sends where (model + endpoint) before
+calling. The prompt holds at most 12,000 chars (middle truncated with a
+disclosed marker), per-message 500 chars, and secrets (API keys, bearer
+tokens, emails, hex secrets) are redacted before construction. Deterministic
+scoring is local-only; the judge call is the only network egress in Pulse.
 
 Agreement gate (required before any hosted-judge claims):
 

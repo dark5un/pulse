@@ -8,6 +8,18 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Canonical scoring + adaptive deep weights (PU-6, PU-7): `DEFAULT_WEIGHTS`
+  gains `goal_completion`/`context_retention`/`correction_quality`/
+  `hallucination` (all move with feedback); the phantom
+  `deep_context_drift` is removed with a silent-drop migration (`save()`
+  purges unknown keys). Slash command, `trace_score.score_bundle()`,
+  leaderboard, and artifact verify now agree on one canonical result
+  (golden-fixture test).
+- Judge privacy (PU-10): key resolution honors `HERMES_HOME` (never a
+  hardcoded `~/.hermes`); `build_prompt()` redacts secrets and bounds the
+  transcript (12k chars, disclosed truncation); CLI `--deep` prints an
+  explicit sends-transcript-to-<model>-at-<endpoint> notice and stays
+  opt-in.
 - Deep-mode persistence (PU-4): every `/pulse deep` exit now writes exactly
   one row — `deep_unavailable` (host LLM lane missing), `deep_failed`
   (judge raised), `deep_success` — so no analysis vanishes from

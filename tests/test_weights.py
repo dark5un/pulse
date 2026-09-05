@@ -13,10 +13,10 @@ def test_load_returns_defaults_when_no_file():
 
 def test_save_and_load_roundtrip():
     """Save then load should return the same weights."""
-    weights = {"test_signal": {"penalty": 10, "useful": 0, "not_useful": 0}, "_meta": {"total_feedback": 0}}
+    weights = {"correction_chain": {"penalty": 10, "useful": 0, "not_useful": 0}, "_meta": {"total_feedback": 0}}
     save(weights)
     loaded = load()
-    assert loaded["test_signal"]["penalty"] == 10
+    assert loaded["correction_chain"]["penalty"] == 10
 
 
 def test_apply_clamps_to_50_percent():

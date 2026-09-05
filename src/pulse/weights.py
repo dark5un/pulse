@@ -12,8 +12,12 @@ from pulse.paths import weights_file
 
 DEFAULT_WEIGHTS: dict[str, dict[str, Any]] = {
     name: {"penalty": penalty, "useful": 0, "not_useful": 0}
-    for name, penalty in {"correction_chain":12,"frustration":12,"goal_drift":6,"vague_prompts":10,"shrinking_prompts":5,"reasoning_loop":15,"premature_stop":10,"tool_error":8,"tool_repetition":10,"shallow_read":12,"low_diversity":5,"deep_context_drift":5}.items()
+    for name, penalty in {"correction_chain":12,"frustration":12,"goal_drift":6,"vague_prompts":10,"shrinking_prompts":5,"reasoning_loop":15,"premature_stop":10,"tool_error":8,"tool_repetition":10,"shallow_read":12,"low_diversity":5,"goal_completion":10,"context_retention":10,"correction_quality":8,"hallucination":15}.items()
 }
+
+#: Signal names ever recognized (current defaults + retired keys dropped
+#: silently on save, never crashed on).
+KNOWN_SIGNAL_NAMES = frozenset(DEFAULT_WEIGHTS) | {"deep_context_drift"}
 _feedback_count = 0
 
 def _valid_entry(value: object) -> bool:
@@ -44,6 +48,11 @@ def save(weights: dict[str, Any], path: Path | None = None) -> None:
     payload = load(path)
     for name, value in weights.items():
         if name != "_meta" and _valid_entry(value): payload[name] = value
+    # Drop unknown/retired keys (e.g. deep_context_drift) so stale entries
+    # disappear on the next feedback write instead of being rewritten forever.
+    for name in list(payload):
+        if name != "_meta" and name not in DEFAULT_WEIGHTS:
+            del payload[name]
     meta = weights.get("_meta", {})
     total = meta.get("total_feedback", 0) if isinstance(meta, dict) else 0
     payload["_meta"] = {"total_feedback": int(total) if isinstance(total, int) and total >= 0 else 0}

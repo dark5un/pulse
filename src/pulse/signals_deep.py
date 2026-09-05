@@ -13,6 +13,12 @@ from pulse.models import Signal
 
 PROMPT_VERSION = "v1"
 
+#: Hard bound on judge prompt size (transcript far over budget is cut,
+#: and the cut is disclosed in the prompt).
+MAX_PROMPT_CHARS = 12_000
+#: Per-message cap inside the prompt.
+MAX_MESSAGE_CHARS = 500
+
 DEEP_SIGNALS = (
     "goal_completion",
     "context_retention",
@@ -51,17 +57,50 @@ class VerdictParseResult:
 
 
 def build_prompt(messages: list[dict]) -> str:
-    lines = [f"{m.get('role', '?')}: {str(m.get('content', ''))[:500]}" for m in messages]
+    redacted_lines = []
+    for m in messages:
+        text = redact_text(str(m.get("content", ""))[:MAX_MESSAGE_CHARS])
+        redacted_lines.append(f"{m.get('role', '?')}: {text}")
     schema = (
         '{"prompt_version": "v1", "verdicts": [{"signal": "<one of '
         + "|".join(DEEP_SIGNALS)
         + '>", "finding": "yes|no", "penalty": <0-25>, "evidence": "<quote>"}]}'
     )
-    return (
+    head = (
         "You are Pulse, a session-quality judge. Verdicts ONLY on the four signals; "
         "'yes' means the PROBLEM was found (penalty > 0 needs evidence quote). "
-        f"Reply with exactly this JSON shape: {schema}\n\nTRANSCRIPT:\n" + "\n".join(lines)
+        f"Reply with exactly this JSON shape: {schema}\n\nTRANSCRIPT:\n"
     )
+    body = "\n".join(redacted_lines)
+    # Bound the transcript: cut from the middle (keep opening + recent tail),
+    # and disclose the cut so the judge knows it sees a window.
+    budget = MAX_PROMPT_CHARS - len(head)
+    if len(body) > budget:
+        keep_head = budget * 2 // 3
+        keep_tail = budget - keep_head - 60
+        body = (
+            body[:keep_head]
+            + "\n[…transcript truncated: middle omitted…]\n"
+            + body[len(body) - keep_tail:]
+        )
+    return head + body
+
+
+def redact_text(text: str) -> str:
+    """Redact secrets from judge-bound text (keys, tokens, emails)."""
+    import re
+
+    patterns = [
+        r"sk-(?:proj-)?[A-Za-z0-9_-]{8,}",
+        r"\bgh[pousr]_[A-Za-z0-9]{8,}\b",
+        r"Bearer\s+[A-Za-z0-9\-._~+/=]{8,}",
+        r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+        r"(?i)\b((?:api[_-]?key|secret|token|password)\b[^A-Za-z0-9]{0,10})([0-9a-f]{32,})\b",
+    ]
+    out = text
+    for pat in patterns:
+        out = re.sub(pat, "[REDACTED]", out)
+    return out
 
 
 def detect_deep(messages: list[dict], backend: JudgeBackend) -> list[Signal]:

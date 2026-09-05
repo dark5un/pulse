@@ -6,7 +6,6 @@ import json
 import os
 import urllib.request
 from dataclasses import dataclass
-from pathlib import Path
 
 JUDGE_MODEL_DEFAULT = "gpt-4o-mini"
 
@@ -27,16 +26,19 @@ class JudgeBackend:
 
 
 def resolve_api_key() -> str:
-    """PULSE_API_KEY -> OPENAI_API_KEY -> HERMES_API_KEY -> ~/.hermes/.env.
+    """PULSE_API_KEY -> OPENAI_API_KEY -> HERMES_API_KEY -> $HERMES_HOME/.env.
 
     Plugin-specific vars carry the plugin prefix (PULSE_); the OpenAI/Hermes
-    fallbacks mirror unroll's existing key resolution.
+    fallbacks mirror unroll's existing key resolution. The .env fallback
+    honors the active Hermes home, never a hardcoded ~/.hermes.
     """
     for var in ("PULSE_API_KEY", "OPENAI_API_KEY", "HERMES_API_KEY"):
         val = os.environ.get(var)
         if val:
             return val
-    env_file = Path.home() / ".hermes" / ".env"
+    from pulse.paths import hermes_home
+
+    env_file = hermes_home() / ".env"
     try:
         if env_file.exists():
             for line in env_file.read_text().splitlines():
@@ -45,7 +47,7 @@ def resolve_api_key() -> str:
                     return v.strip().strip("'\"")
     except OSError:
         pass
-    raise SystemExit("no API key: set OPENAI_API_KEY/HERMES_API_KEY or ~/.hermes/.env")
+    raise SystemExit("no API key: set OPENAI_API_KEY/HERMES_API_KEY or $HERMES_HOME/.env")
 
 
 class OpenAIJudge(JudgeBackend):
@@ -98,6 +100,8 @@ class StubJudge(JudgeBackend):
     def __init__(self, script: list[JudgeResult]) -> None:
         super().__init__()
         self.script = script
+        self.model = "stub"
+        self.base_url = ""
 
     def judge(self, prompt: str) -> JudgeResult:
         if len(self.script) > 1:
