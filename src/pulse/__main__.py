@@ -51,6 +51,15 @@ def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "export":
         from pulse.export_cli import main as export_main
         raise SystemExit(export_main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "experiment":
+        from pulse.experiment_cli import main as experiment_main
+        raise SystemExit(experiment_main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "bundle":
+        from pulse.artifact_cli import main as bundle_main
+        raise SystemExit(bundle_main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "verify":
+        from pulse.artifact_cli import verify_main
+        raise SystemExit(verify_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "portability":
         from pulse.portability_cli import main as portability_main
         raise SystemExit(portability_main(sys.argv[2:]))
