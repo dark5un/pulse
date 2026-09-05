@@ -4,6 +4,33 @@ All notable changes to hermes-pulse. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-09-05
+
+### Added
+
+- Scenario-coverage commands (all standalone — plain trace dirs in/out):
+  - `pulse replay` — corpus fan-out runner (same-interpreter subprocess,
+    per-trace timeout, PASS/FAIL/TIMEOUT table, exit 0/1; `--live`
+    passes through to the trace replayer).
+  - `pulse compare --a DIR --b DIR` — score distributions
+    (mean/median/p25/p75, cost + timing deltas, plain-English verdict
+    labeled provisional with N).
+  - `pulse skills` — per-skill ROI ledger (loads, deadweight/correction
+    rates, mean cost, task-type mix, skill-less baseline; correlation,
+    not causation).
+  - `pulse export` — SFT + DPO pairs (`sharegpt|jsonl`, `--min-score`,
+    per-file redaction receipts in `manifest.json`, `--review`
+    spot-check mode for mined pairs).
+  - `pulse experiment` — run manifests (variable, versions, timestamp,
+    trace hashes); `pulse bundle/verify` — self-contained
+    `<session>.artifact/` + replay/rescore check.
+  - `pulse incident` — 3am postmortem skeleton (window, before/after
+    scores, counterfactual commands); `pulse flake` — dry-run divergence
+    map (per-step stability, diverging indices).
+  - `pulse costs --join sessions.csv` — join-side team attribution
+    (totals, per-task split, `unmapped` bucket; no capture change).
+  - `pulse leaderboard --task/--top` — onboarding curation filters.
+
 ## [0.3.0] - 2026-09-05
 
 ### Added

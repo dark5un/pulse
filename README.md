@@ -58,14 +58,38 @@ Model-change loop: replay → `build_corpus.py --traces corpus --out corpus`
 
 ```bash
 uv run pulse leaderboard                    # ./corpus, no args needed
-uv run pulse leaderboard --corpus DIR [--json]
+uv run pulse leaderboard --corpus DIR [--json] [--task coding] [--top 5]
 ```
 
 Loads `*.score.json` sidecars (scores `*.py` traces live when a sidecar is
-missing). Ranks top/bottom 3 per task type; session IDs are anonymized
+missing). Ranks top/bottom N per task type (default 3); session IDs are anonymized
 (sha256, first 12 chars); score ties break toward lower cost.
-Standalone: needs no Hermes install — just `pip install hermes-pulse` and a
-directory of trace files.
+`--task` filters to one task type (onboarding curriculum: print top-5 per
+task in the onboarding doc). Standalone: needs no Hermes install — just
+`pip install hermes-pulse` and a directory of trace files.
+
+### Prompt A/B with distributions
+
+```bash
+uv run pulse compare --a traces_prompt_a/ --b traces_prompt_b/ [--json]
+```
+
+Mean/median/p25/p75 per variant, cost delta, timing delta (when duration
+fields exist), and a plain-English verdict ("A wins on quality (+3.2 pts,
+cost +0.0100, provisional n=20)"). No significance testing at v1 — effect
+size + N, labeled provisional.
+
+### Skill ROI ledger
+
+```bash
+uv run pulse skills --corpus DIR [--json]
+```
+
+One card per skill: loads, deadweight rate, correction rate, mean cost,
+task-type mix, plus the mean cost of skill-less sessions of the same task
+types as a baseline. Correlation, not causation — the card shows task mix
+alongside the numbers so a skill loaded only in hard sessions isn't
+misread. Feeds the skill-curator workflow (kill or fix with data).
 
 ### Quality as a merge check
 
@@ -112,6 +136,59 @@ on others), `dead` (deadweight everywhere). Reads `active_skills` +
 corpora scored before v0.3 lack `active_skills` — rescore with
 `scripts/build_corpus.py` to fill them in. Standalone: needs no Hermes
 install.
+
+### Training-data export
+
+```bash
+uv run pulse export --corpus DIR --out export/ [--format sharegpt|jsonl] [--min-score 90]
+uv run pulse export --corpus DIR --review   # spot-check mined DPO pairs first
+```
+
+Trace TIMELINE → message list with tool calls; pulse score → quality
+filter (score ≥ threshold → SFT candidate); `correction_chain` evidence →
+DPO pairs (pre-correction assistant turn = rejected, post = chosen).
+`manifest.json` carries a per-file redaction receipt (`redacted-at-capture`
+— unroll redacts at capture time). `--review` dumps pairs for human
+spot-check: not every correction is a clean chosen/rejected pair.
+
+### Experiments and paper artifacts
+
+```bash
+uv run pulse experiment --corpus DIR --out results/exp1 --variable model=m2
+uv run pulse bundle <trace.py> [--out artifacts/]
+uv run pulse verify <session>.artifact/
+```
+
+`experiment` pins seed/variable, pulse version, timestamp, and exact trace
+hashes so a reviewer can rerun; `bundle` emits a self-contained
+`<session>.artifact/` (trace, sidecar, run-manifest, redaction receipt);
+`verify` replays dry-run and checks the score reproduces exactly.
+
+### Incident postmortem and flake detection
+
+```bash
+uv run pulse incident --trace T.py --bad-step N [--window 3] [--json]
+uv run pulse flake --trace T.py --runs 5 [--json]
+```
+
+`incident` prints the structured postmortem skeleton (timeline around N,
+score before/after N, `--substitute-tool` + `--from/--to` counterfactual
+commands) — one command at 3am, not four flags. `flake` replays dry-run N
+times (never `--live`; live variance is a separate question) and reports
+per-step stability (`5/5 identical` → stable, else flaky with diverging
+step indices) for quarantine decisions.
+
+### Cost attribution
+
+```bash
+uv run pulse costs --corpus DIR --join sessions.csv [--group-by team|task] [--json]
+```
+
+Join-side rollup: `sessions.csv` maps `session_id → team` (zero capture
+change — works for teams with a session registry). Sums, per-task split,
+sessions per team; unmapped sessions land in an `unmapped` bucket, never
+silently dropped. Capture-side tags (`HERMES_SESSION_TAGS` at trace time)
+remain a separate unroll change.
 
 ## Native integrations
 
@@ -166,6 +243,14 @@ Tests use an autouse temporary `HERMES_HOME`; they never write the developer's r
 - `src/pulse/signals_unroll.py` — unroll-native detectors (latency, cost, skill deadweight; provisional thresholds)
 - `src/pulse/unroll_loader.py` — safe trace loader (AST only, never executes) + timeline→messages
 - `scripts/build_corpus.py` — session-gym corpus curator (bottom-10 + sidecar JSON)
+- `src/pulse/replay.py` + `replay_cli.py` — `pulse replay` (corpus fan-out runner)
+- `src/pulse/compare.py` + `compare_cli.py` — `pulse compare` (distribution A/B)
+- `src/pulse/skills.py` + `skills_cli.py` — `pulse skills` (ROI ledger)
+- `src/pulse/export.py` + `export_cli.py` — `pulse export` (SFT + DPO pairs)
+- `src/pulse/experiment.py` + `experiment_cli.py` — `pulse experiment` (run manifests)
+- `src/pulse/artifact.py` + `artifact_cli.py` — `pulse bundle/verify` (paper artifacts)
+- `src/pulse/incident.py` + `flake.py` + `incident_cli.py` — `pulse incident/flake`
+- `src/pulse/costs.py` + `costs_cli.py` — `pulse costs` (join-side attribution)
 - `src/pulse/task_type.py` — precedence-based classification
 - `src/pulse/session_store.py` — shared defensive SQLite loader
 - `src/pulse/weights.py` — validated atomic learned state
