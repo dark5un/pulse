@@ -66,6 +66,9 @@ def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "flake":
         from pulse.incident_cli import flake_main
         raise SystemExit(flake_main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "costs":
+        from pulse.costs_cli import main as costs_main
+        raise SystemExit(costs_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "portability":
         from pulse.portability_cli import main as portability_main
         raise SystemExit(portability_main(sys.argv[2:]))
