@@ -14,7 +14,7 @@ def render_portability(records: list[dict], *, as_json: bool = False) -> str:
     if as_json:
         return json.dumps(result, indent=2)
     if not result:
-        return "No skill data found (records lack active_skills)."
+        return "No skill data found (no active_skills in corpus records)."
     lines = []
     for skill in sorted(result):
         models = ", ".join(f"{m}={r}" for m, r in sorted(result[skill]["models"].items()))

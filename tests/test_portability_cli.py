@@ -61,6 +61,13 @@ def test_sidecar_writer_includes_active_skills():
     assert "active_skills" in rec and isinstance(rec["active_skills"], list)
 
 
+def test_empty_portability_message(tmp_path):
+    from pulse.portability_cli import render_portability
+
+    assert "no active_skills" in render_portability([], as_json=False).lower()
+    assert "No skill data" in render_portability([], as_json=False)
+
+
 def test_portability_live_fallback_no_sidecar(tmp_path):
     import shutil
 
