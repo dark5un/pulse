@@ -280,3 +280,33 @@ def test_pulse_deep_persists_run_mode(monkeypatch, tmp_path):
     row = conn.execute("SELECT run_mode FROM pulse_results WHERE session_id='sess-deep-1'").fetchone()
     conn.close()
     assert row[0] == "deep"
+
+
+def test_pulse_deep_without_host_cost_shows_tokens_only(monkeypatch, tmp_path):
+    """No cost_usd from harness -> tokens print, no dollar figure (never estimated)."""
+
+    class _NoCostUsage:
+        input_tokens = 120
+        output_tokens = 30
+        total_tokens = 150
+        cost_usd = None
+
+    class _NoCostResult(_FakeLlmResult):
+        usage = _NoCostUsage()
+
+    class _NoCostLlm:
+        def complete_structured(self, **kw):
+            return _NoCostResult()
+
+    class _NoCostCtx:
+        llm = _NoCostLlm()
+
+        def register_command(self, name, handler, description, args_hint=""):
+            self.handler = handler
+
+    ctx = _NoCostCtx()
+    plugin.register(ctx)
+    _seed_session(monkeypatch, tmp_path)
+    out = ctx.handler("deep")
+    assert "150 tokens" in out
+    assert "$" not in out

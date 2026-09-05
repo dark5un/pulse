@@ -410,7 +410,10 @@ def _handle_deep() -> str:
     in_tok = getattr(usage, "input_tokens", 0) or 0
     out_tok = getattr(usage, "output_tokens", 0) or 0
     total = (getattr(usage, "total_tokens", 0) or 0) or (in_tok + out_tok)
+    # Cost: host-reported dollars when the harness supplies them;
+    # otherwise tokens only — never estimated, never fabricated.
     cost = getattr(usage, "cost_usd", None)
+    cost_label = f", ~${cost:.4f} (host-reported)" if cost is not None else ""
     elapsed = time.time() - t0
     conn = _get_db()
     _write_result(conn, sid, model, task_type, result, signals_flat, run_mode="deep")
@@ -422,7 +425,7 @@ def _handle_deep() -> str:
         f"  Model: {getattr(res, 'model', '?')} ({getattr(res, 'provider', '?')})",
         f"  Verdicts: {', '.join(s.name for s in deep_signals) or 'no findings'}",
         f"  Cost: {total} tokens ({in_tok} in / {out_tok} out)"
-        + (f", ~${cost:.4f}" if cost else "")
+        + cost_label
         + f", {elapsed:.0f}s — billed to your active model",
         "  Provisional until agreement-gated (kappa>=0.6, n>=50).",
         "───────────────────────────────────────────────",
