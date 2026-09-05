@@ -17,14 +17,18 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def verify_main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Verify a trace artifact replays + rescores")
+    ap = argparse.ArgumentParser(
+        description="Verify a trace artifact (inspects, never executes)"
+    )
     ap.add_argument("artifact", help="Artifact dir from pulse bundle")
     args = ap.parse_args(argv)
     out = verify(args.artifact)
-    status = "replays" if out["replays"] else "REPLAY FAILED"
+    status = "loads" if out["loads"] else "LOAD FAILED"
+    hashes = "hash matches" if out["hash_matches"] else "HASH MISMATCH"
     score = "score reproduces" if out["score_reproduces"] else "SCORE DIFFERS"
-    print(f"{status}, {score}: {out['detail']}")
-    return 0 if out["replays"] and out["score_reproduces"] else 1
+    print(f"{status}, {hashes}, {score}: {out['detail']}")
+    ok = out["loads"] and out["hash_matches"] and out["score_reproduces"]
+    return 0 if ok else 1
 
 
 __all__ = ["main", "verify_main"]

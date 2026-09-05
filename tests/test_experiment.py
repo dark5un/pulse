@@ -57,6 +57,8 @@ def test_verify_clean_trace(tmp_path):
     (tmp_path / "t.score.json").write_text(json.dumps({"score": 100, "penalty": 0}))
     dest = bundle(str(trace), out_dir=str(tmp_path / "art"))
     out = verify(dest)
-    assert out["replays"] is True
+    assert out["loads"] is True
+    assert out["hash_matches"] is True
+    # The minimal fixture scores 100/0, matching the pinned sidecar.
     assert out["score_reproduces"] is True
     assert "score" in out["detail"]

@@ -2,27 +2,44 @@
 
 ``pulse bundle <trace.py>`` emits ``<session>.artifact/`` (trace, sidecar,
 run-manifest with tool versions and hashes, redaction receipt).
-``pulse verify <artifact/>`` replays dry-run and checks the score
-reproduces exactly.
+``pulse verify <artifact/>`` inspects the artifact structurally and checks
+the score reproduces exactly.
+
+Trust boundary: ``verify`` inspects — it never executes. Trace files are
+generated Python programs, so executing one during verification would be
+arbitrary host code execution on whoever verifies a downloaded artifact.
+Replay belongs to the explicit ``pulse replay`` path, which the operator
+opts into per trace.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-import subprocess
-import sys
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
+import pulse
 from pulse.export import REDACTION_RECEIPT
+from pulse.trace_score import score_trace_file
+
+#: Bump whenever the artifact on-disk schema changes in a way old
+#: verifiers cannot read. Stored in ``run-manifest.json``.
+ARTIFACT_SCHEMA = 2
+
+#: Constants a trace must define for structural verification. Mirrors the
+#: loader's core keys (a verifiable trace is a parseable, scorable trace).
+REQUIRED_TRACE_CONSTANTS = ("SESSION_ID", "MODEL", "TIMELINE")
 
 
 def _pulse_version() -> str:
     try:
         return version("hermes-pulse")
-    except Exception:  # noqa: BLE001 — dev checkout without install
-        return "dev"
+    except PackageNotFoundError:
+        # Editable checkout, isolated tool install, or any environment
+        # without distribution metadata — fall back to the single source
+        # of truth in the package itself so run-manifests stay pinnable.
+        return pulse.__version__
 
 
 def bundle(trace: str, out_dir: str | Path = ".") -> str:
@@ -38,11 +55,11 @@ def bundle(trace: str, out_dir: str | Path = ".") -> str:
     else:
         sidecar_note = "no sidecar — score at verify time"
     manifest = {
+        "artifact_schema": ARTIFACT_SCHEMA,
         "trace": src.name,
         "sha256": hashlib.sha256(src.read_bytes()).hexdigest(),
         "sidecar": sidecar_note,
         "pulse_version": _pulse_version(),
-        "python": sys.version.split()[0],
         "redaction_receipt": REDACTION_RECEIPT,
     }
     (dest / "run-manifest.json").write_text(json.dumps(manifest, indent=2))
@@ -50,37 +67,118 @@ def bundle(trace: str, out_dir: str | Path = ".") -> str:
 
 
 def verify(artifact_dir: str | Path) -> dict:
-    """Replay dry-run + rescore; report whether the score reproduces."""
-    from pulse.trace_score import score_trace_file
+    """Inspect an artifact without executing it.
 
+    Returns ``{"loads", "hash_matches", "score_reproduces", "detail"}``:
+
+    - ``loads``: the trace parses and defines the required constants.
+    - ``hash_matches``: current trace bytes match the ``run-manifest.json``
+      sha256 pinned at bundle time (tamper evidence).
+    - ``score_reproduces``: ``score_trace_file()`` on the trace equals the
+      pinned sidecar score (or True when no sidecar was bundled).
+    """
     d = Path(artifact_dir)
     traces = sorted(d.glob("*.py"))
     if not traces:
-        return {"replays": False, "score_reproduces": False, "detail": "no trace found"}
+        return {
+            "loads": False,
+            "hash_matches": False,
+            "score_reproduces": False,
+            "detail": "no trace found",
+        }
     trace = traces[0]
-    proc = subprocess.run(
-        [sys.executable, str(trace)], capture_output=True, text=True, timeout=300,
-        check=False,
-    )
-    replays = proc.returncode == 0
-    detail = f"replay exit={proc.returncode}"
-    reproduces = False
+    manifest: dict = {}
+    manifest_path = d / "run-manifest.json"
+    if manifest_path.exists():
+        try:
+            manifest = json.loads(manifest_path.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            return {
+                "loads": False,
+                "hash_matches": False,
+                "score_reproduces": False,
+                "detail": f"run-manifest unreadable: {e}",
+            }
+    required = ", ".join(REQUIRED_TRACE_CONSTANTS)
+    try:
+        from pulse.unroll_loader import load_unroll_trace
+
+        load_unroll_trace(str(trace))
+        text = trace.read_text()
+        missing = [
+            const
+            for const in REQUIRED_TRACE_CONSTANTS
+            if f"{const} =" not in text and f"{const}=" not in text
+        ]
+        if missing:
+            return {
+                "loads": False,
+                "hash_matches": False,
+                "score_reproduces": False,
+                "detail": f"missing required trace constants: {', '.join(missing)} (need {required})",
+            }
+    except ValueError as e:
+        return {
+            "loads": False,
+            "hash_matches": False,
+            "score_reproduces": False,
+            "detail": f"trace does not parse: {e}",
+        }
+    except OSError as e:
+        return {
+            "loads": False,
+            "hash_matches": False,
+            "score_reproduces": False,
+            "detail": f"trace unreadable: {e}",
+        }
+    digest = hashlib.sha256(trace.read_bytes()).hexdigest()
+    pinned = manifest.get("sha256")
+    if pinned is None:
+        return {
+            "loads": True,
+            "hash_matches": False,
+            "score_reproduces": False,
+            "detail": "run-manifest has no sha256 to compare against",
+        }
+    if digest != pinned:
+        short = digest[:12]
+        return {
+            "loads": True,
+            "hash_matches": False,
+            "score_reproduces": False,
+            "detail": f"hash MISMATCH: trace sha256 {short}… != manifest {str(pinned)[:12]}… (tampered after bundling?)",
+        }
     try:
         rec = score_trace_file(trace)
         sidecars = sorted(d.glob("*.score.json"))
         if sidecars:
-            pinned = json.loads(sidecars[0].read_text())
+            pinned_score = json.loads(sidecars[0].read_text())
             reproduces = (
-                rec["score"] == pinned.get("score")
-                and rec["penalty"] == pinned.get("penalty")
+                rec["score"] == pinned_score.get("score")
+                and rec["penalty"] == pinned_score.get("penalty")
             )
-            detail += f" score={rec['score']} pinned={pinned.get('score')}"
+            detail = f"hash matches, score={rec['score']} pinned={pinned_score.get('score')}"
         else:
             reproduces = True
-            detail += f" score={rec['score']} (no pinned sidecar)"
+            detail = f"hash matches, score={rec['score']} (no pinned sidecar)"
     except Exception as e:  # noqa: BLE001 — report, don't crash
-        detail += f" rescore failed: {e}"
-    return {"replays": replays, "score_reproduces": reproduces, "detail": detail}
+        return {
+            "loads": True,
+            "hash_matches": True,
+            "score_reproduces": False,
+            "detail": f"hash matches, rescore failed: {e}",
+        }
+    return {
+        "loads": True,
+        "hash_matches": True,
+        "score_reproduces": reproduces,
+        "detail": detail,
+    }
 
 
-__all__ = ["bundle", "verify"]
+__all__ = [
+    "ARTIFACT_SCHEMA",
+    "REQUIRED_TRACE_CONSTANTS",
+    "bundle",
+    "verify",
+]

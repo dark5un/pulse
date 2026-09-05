@@ -197,8 +197,16 @@ uv run pulse verify <session>.artifact/
 
 `experiment` pins seed/variable, pulse version, timestamp, and exact trace
 hashes so a reviewer can rerun; `bundle` emits a self-contained
-`<session>.artifact/` (trace, sidecar, run-manifest, redaction receipt);
-`verify` replays dry-run and checks the score reproduces exactly.
+`<session>.artifact/` (trace, sidecar, run-manifest, redaction receipt).
+
+**Artifact trust boundary — `verify` inspects, it never executes.** Trace
+files are generated Python programs: executing one during verification
+would be arbitrary host code execution on whoever checks a downloaded
+artifact. `verify` instead reports `loads` (parses + defines the required
+constants), `hash_matches` (bytes match the bundled sha256), and
+`score_reproduces` (rescore equals the pinned sidecar). Replay belongs to
+the explicit `pulse replay` path, which the operator opts into per trace —
+never inside `verify`.
 
 ### Incident postmortem and flake detection
 

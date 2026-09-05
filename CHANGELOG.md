@@ -4,6 +4,23 @@ All notable changes to hermes-pulse. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- `pulse verify` no longer executes the trace: the `subprocess.run` call is
+  deleted and verification is a structural inspect (parses via the safe AST
+  loader, required constants present, sha256 matches `run-manifest.json`,
+  rescore matches the pinned sidecar). Result schema is now
+  `{"loads", "hash_matches", "score_reproduces", "detail"}` (artifact
+  schema v2); the old `replays` ("script exited 0") key is removed. If
+  executing replay is ever wanted, it belongs in an explicit opt-in replay
+  path — never inside `verify`.
+- Run manifests now pin the real package version: `_pulse_version()` falls
+  back to `pulse.__version__` (single source of truth, matching
+  `pyproject.toml`) instead of recording `"dev"` when distribution metadata
+  is unavailable (editable checkout, isolated tool install).
+
 ## [0.6.0] - 2026-09-05
 
 ### Added
