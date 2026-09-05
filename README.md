@@ -47,8 +47,8 @@ recurring signal.
 ### Leaderboard
 
 ```bash
-uv run pulse leaderboard --corpus corpus            # terminal table
-uv run pulse leaderboard --corpus corpus --json     # machine output
+uv run pulse leaderboard                    # ./corpus, no args needed
+uv run pulse leaderboard --corpus DIR [--json]
 ```
 
 Loads `*.score.json` sidecars (scores `*.py` traces live when a sidecar is
@@ -87,6 +87,21 @@ uv run python scripts/redteam_score.py --traces redteam_traces/ [--json]
 Per model: mean score plus frustration / correction-chain / reasoning-loop
 counts per 10 sessions, calmest first. Standalone: needs no Hermes install
 — input is a plain directory of trace files.
+
+### Skill portability
+
+```bash
+uv run pulse portability                   # ./corpus, no args needed
+uv run pulse portability --corpus DIR [--json]
+```
+
+Per skill: deadweight rate per model plus a verdict — `portable` (low
+deadweight everywhere), `model_specific` (deadweight on some models, clean
+on others), `dead` (deadweight everywhere). Reads `active_skills` +
+`signals` straight from sidecars, so it never re-parses trace files;
+corpora scored before v0.3 lack `active_skills` — rescore with
+`scripts/build_corpus.py` to fill them in. Standalone: needs no Hermes
+install.
 
 ## Native integrations
 
