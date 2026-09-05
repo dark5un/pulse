@@ -9,9 +9,9 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from pulse.signals import extract_signals
-from pulse.signals_unroll import detect_cost, detect_latency, detect_skill_deadweight
-from pulse.unroll_loader import UnrollBundle, bundle_to_messages, load_unroll_trace
+from .signals import extract_signals
+from .signals_unroll import detect_cost, detect_latency, detect_skill_deadweight
+from .unroll_loader import UnrollBundle, bundle_to_messages, load_unroll_trace
 
 
 def anonymize(session_id: str) -> str:

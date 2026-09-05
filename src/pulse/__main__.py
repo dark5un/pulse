@@ -3,14 +3,14 @@ import argparse
 import json
 from pathlib import Path
 
-from pulse.judge import JUDGE_MODEL_DEFAULT, OpenAIJudge
-from pulse.paths import state_db
-from pulse.session_store import load_messages
-from pulse.signals import extract_signals
+from .judge import JUDGE_MODEL_DEFAULT, OpenAIJudge
+from .paths import state_db
+from .session_store import load_messages
+from .signals import extract_signals
 
 
 def load_session_from_db(session_id: str | None = None, db_path: Path | None = None) -> list[dict]:
-    from pulse.session_store import SchemaIncompatibleError
+    from .session_store import SchemaIncompatibleError
 
     try:
         return load_messages(session_id, db_path)
@@ -41,46 +41,46 @@ def render_card(result, task_type: str, unroll_meta: dict | None = None) -> str:
 def main() -> None:
     import sys
     if len(sys.argv) > 1 and sys.argv[1] == "analyze":
-        from pulse.protocol import main as protocol_main
+        from .protocol import main as protocol_main
         raise SystemExit(protocol_main())
     if len(sys.argv) > 1 and sys.argv[1] == "leaderboard":
-        from pulse.leaderboard_cli import main as leaderboard_main
+        from .leaderboard_cli import main as leaderboard_main
         raise SystemExit(leaderboard_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "replay":
-        from pulse.replay_cli import main as replay_main
+        from .replay_cli import main as replay_main
         raise SystemExit(replay_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "compare":
-        from pulse.compare_cli import main as compare_main
+        from .compare_cli import main as compare_main
         raise SystemExit(compare_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "skills":
-        from pulse.skills_cli import main as skills_main
+        from .skills_cli import main as skills_main
         raise SystemExit(skills_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "export":
-        from pulse.export_cli import main as export_main
+        from .export_cli import main as export_main
         raise SystemExit(export_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "experiment":
-        from pulse.experiment_cli import main as experiment_main
+        from .experiment_cli import main as experiment_main
         raise SystemExit(experiment_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "bundle":
-        from pulse.artifact_cli import main as bundle_main
+        from .artifact_cli import main as bundle_main
         raise SystemExit(bundle_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "verify":
-        from pulse.artifact_cli import verify_main
+        from .artifact_cli import verify_main
         raise SystemExit(verify_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "incident":
-        from pulse.incident_cli import main as incident_main
+        from .incident_cli import main as incident_main
         raise SystemExit(incident_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "flake":
-        from pulse.incident_cli import flake_main
+        from .incident_cli import flake_main
         raise SystemExit(flake_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "costs":
-        from pulse.costs_cli import main as costs_main
+        from .costs_cli import main as costs_main
         raise SystemExit(costs_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "portability":
-        from pulse.portability_cli import main as portability_main
+        from .portability_cli import main as portability_main
         raise SystemExit(portability_main(sys.argv[2:]))
     if len(sys.argv) > 1 and sys.argv[1] == "agreement":
-        from pulse.agreement_cli import main as agreement_main
+        from .agreement_cli import main as agreement_main
         raise SystemExit(agreement_main(sys.argv[2:]))
     parser = argparse.ArgumentParser(description="Hermes Pulse — session health monitor")
     parser.add_argument("--file", "-f", help="Session JSONL file")
@@ -98,7 +98,7 @@ def main() -> None:
     malformed: list[int] = []
     bundle = None
     if args.unroll:
-        from pulse.unroll_loader import bundle_to_messages, load_unroll_trace
+        from .unroll_loader import bundle_to_messages, load_unroll_trace
 
         bundle = load_unroll_trace(args.unroll)
         messages = bundle_to_messages(bundle)
@@ -132,7 +132,7 @@ def main() -> None:
     result = extract_signals(messages)
     unroll_signals: list = []
     if args.unroll and bundle is not None:
-        from pulse.signals_unroll import (
+        from .signals_unroll import (
             detect_cost,
             detect_latency,
             detect_skill_deadweight,
@@ -146,7 +146,7 @@ def main() -> None:
         result.signals.extend(unroll_signals)
     deep_info: dict | None = None
     if args.deep:
-        from pulse.signals_deep import build_prompt, detect_deep
+        from .signals_deep import build_prompt, detect_deep
 
         backend = OpenAIJudge(model=args.judge_model or JUDGE_MODEL_DEFAULT, base_url=args.judge_base_url)
         endpoint = getattr(backend, "base_url", "") or "https://api.openai.com/v1"

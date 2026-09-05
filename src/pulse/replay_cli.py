@@ -10,7 +10,7 @@ import argparse
 import json
 from pathlib import Path
 
-from pulse.replay import replay_corpus
+from .replay import replay_corpus
 
 
 def find_traces(corpus: str | Path) -> list[str]:

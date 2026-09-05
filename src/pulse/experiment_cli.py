@@ -5,9 +5,9 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from pulse.compare import compare_distributions
-from pulse.experiment import write_manifest
-from pulse.leaderboard_cli import load_corpus_records
+from .compare import compare_distributions
+from .experiment import write_manifest
+from .leaderboard_cli import load_corpus_records
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -26,7 +26,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(manifest, indent=2))
     else:
         scores = [float(r.get("score", 0)) for r in records]
-        from pulse.compare import summarize
+        from .compare import summarize
 
         s = summarize(scores)
         print(f"variable={args.variable} n={s['n']} mean={s['mean']} -> {args.out}")

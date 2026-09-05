@@ -13,12 +13,12 @@ import hashlib
 import json
 from pathlib import Path
 
-from pulse.agreement import agreement_rate, cohen_kappa, gate
-from pulse.judge import JUDGE_MODEL_DEFAULT, OpenAIJudge
-from pulse.leaderboard_cli import load_corpus_records
-from pulse.signals import extract_signals
-from pulse.signals_deep import PROMPT_VERSION, detect_deep
-from pulse.unroll_loader import bundle_to_messages, load_unroll_trace
+from .agreement import agreement_rate, cohen_kappa, gate
+from .judge import JUDGE_MODEL_DEFAULT, OpenAIJudge
+from .leaderboard_cli import load_corpus_records
+from .signals import extract_signals
+from .signals_deep import PROMPT_VERSION, detect_deep
+from .unroll_loader import bundle_to_messages, load_unroll_trace
 
 
 def make_backend(args):

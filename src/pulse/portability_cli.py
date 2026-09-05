@@ -5,8 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 
-from pulse.leaderboard_cli import load_corpus_records
-from pulse.portability import portability
+from .leaderboard_cli import load_corpus_records
+from .portability import portability
 
 
 def render_portability(records: list[dict], *, as_json: bool = False) -> str:

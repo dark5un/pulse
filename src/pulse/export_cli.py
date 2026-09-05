@@ -5,9 +5,9 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from pulse.export import bundle_to_sharegpt, correction_pairs, export_records
-from pulse.leaderboard_cli import load_corpus_records
-from pulse.unroll_loader import load_unroll_trace
+from .export import bundle_to_sharegpt, correction_pairs, export_records
+from .leaderboard_cli import load_corpus_records
+from .unroll_loader import load_unroll_trace
 
 
 def _messages_for(rec: dict) -> list[dict]:

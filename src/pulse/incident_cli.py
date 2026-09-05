@@ -5,9 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 
-from pulse.flake import flake
-from pulse.flake import render as render_flake
-from pulse.incident import render, skeleton
+from .flake import flake
+from .flake import render as render_flake
+from .incident import render, skeleton
 
 
 def main(argv: list[str] | None = None) -> int:

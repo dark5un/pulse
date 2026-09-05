@@ -5,8 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 
-from pulse.leaderboard_cli import load_corpus_records
-from pulse.skills import ledger
+from .leaderboard_cli import load_corpus_records
+from .skills import ledger
 
 
 def render_json(records: list[dict]) -> str:

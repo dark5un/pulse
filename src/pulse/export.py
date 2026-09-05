@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from pulse.unroll_loader import UnrollBundle
+from .unroll_loader import UnrollBundle
 
 REDACTION_RECEIPT = "redacted-at-capture"
 
@@ -43,7 +43,7 @@ def bundle_to_sharegpt(bundle: UnrollBundle) -> list[dict]:
 
 
 def _is_correction(text: str) -> bool:
-    from pulse.signals import CORRECTION_STARTS
+    from .signals import CORRECTION_STARTS
 
     stripped = text.lower().strip()
     return any(stripped.startswith(w) for w in CORRECTION_STARTS)

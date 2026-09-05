@@ -8,8 +8,8 @@ from __future__ import annotations
 import json
 import math
 
-from pulse.judge import JudgeBackend
-from pulse.models import Signal
+from .judge import JudgeBackend
+from .models import Signal
 
 PROMPT_VERSION = "v1"
 

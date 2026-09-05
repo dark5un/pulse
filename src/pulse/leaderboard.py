@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pulse.trace_score import anonymize
+from .trace_score import anonymize
 
 
 def _entry(rec: dict) -> dict:

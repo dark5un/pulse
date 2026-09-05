@@ -7,8 +7,8 @@ four flags remembered under stress.
 
 from __future__ import annotations
 
-from pulse.trace_score import score_bundle
-from pulse.unroll_loader import bundle_to_messages, load_unroll_trace
+from .trace_score import score_bundle
+from .unroll_loader import bundle_to_messages, load_unroll_trace
 
 
 def skeleton(trace: str, bad_step: int, window: int = 3) -> dict:
@@ -23,7 +23,7 @@ def skeleton(trace: str, bad_step: int, window: int = 3) -> dict:
     full = score_bundle(bundle, msgs)
     # Score halves: timeline halves mapped back through bundle_to_messages
     # shape is best-effort — halves with no user message score 100 by guard.
-    from pulse.unroll_loader import UnrollBundle
+    from .unroll_loader import UnrollBundle
 
     def _score_half(entries: list[dict]) -> int:
         half = UnrollBundle(

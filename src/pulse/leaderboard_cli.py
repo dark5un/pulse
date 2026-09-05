@@ -6,8 +6,8 @@ import argparse
 import json
 from pathlib import Path
 
-from pulse.leaderboard import rank_traces
-from pulse.trace_score import score_trace_file
+from .leaderboard import rank_traces
+from .trace_score import score_trace_file
 
 
 def load_corpus_records(corpus: str | Path) -> list[dict]:

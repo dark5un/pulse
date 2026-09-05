@@ -5,8 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 
-from pulse.costs import load_mapping, rollup
-from pulse.leaderboard_cli import load_corpus_records
+from .costs import load_mapping, rollup
+from .leaderboard_cli import load_corpus_records
 
 
 def render_table(groups: dict[str, dict]) -> str:

@@ -7,9 +7,9 @@ Thresholds are provisional until ~100-session calibration — never present
 them as calibrated.
 """
 
-from pulse.constants import TASK_BRAINSTORM, TASK_CODING
-from pulse.models import Signal
-from pulse.unroll_loader import UnrollBundle
+from .constants import TASK_BRAINSTORM, TASK_CODING
+from .models import Signal
+from .unroll_loader import UnrollBundle
 
 # Provisional: absolute per-step latency ceiling (ms) until corpus calibration.
 LATENCY_STEP_MS = 5000
@@ -72,8 +72,8 @@ def detect_skill_deadweight(bundle: UnrollBundle, messages: list[dict]) -> list[
     correction → info only. Brainstorm sessions downgrade warnings to info
     (exploration is expected). No skills loaded, or tools were used → none.
     """
-    from pulse.signals import CORRECTION_STARTS
-    from pulse.task_type import detect_task_type
+    from .signals import CORRECTION_STARTS
+    from .task_type import detect_task_type
 
     if not bundle.active_skills:
         return []

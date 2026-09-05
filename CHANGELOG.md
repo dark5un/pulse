@@ -8,6 +8,16 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Install contract + version floor (PU-11, PU-12): `requires-python`
+  lowered to `>=3.11` (Hermes runs 3.11.15; both packages compile clean
+  under 3.11 — the old `>=3.12` floor would refuse a wheel install).
+  All of `src/pulse` converted to relative imports and the `sys.path`
+  hack deleted from `plugin.py`, fixing the cwd-dependent
+  `ModuleNotFoundError: pulse.paths`. `install.sh` writes modules to
+  exactly one location (entry `__init__.py` + flat siblings, no nested
+  duplicate copy); `uninstall.sh` removes all of them. Clean-install
+  smoke test (`tests/test_install_contract.py`) covers loader-style
+  registration, single location, and the 3.11 compile check.
 - Canonical scoring + adaptive deep weights (PU-6, PU-7): `DEFAULT_WEIGHTS`
   gains `goal_completion`/`context_retention`/`correction_quality`/
   `hallucination` (all move with feedback); the phantom

@@ -8,7 +8,7 @@ import json
 import re
 from collections import Counter
 
-from pulse.constants import (
+from .constants import (
     NON_ANALYTICAL,
     READ_TOOLS,
     TASK_BRAINSTORM,
@@ -16,8 +16,8 @@ from pulse.constants import (
     TASK_WRITING,
     WRITE_TOOLS,
 )
-from pulse.models import RuntimeLog, Signal, SignalResult
-from pulse.task_type import detect_task_type
+from .models import RuntimeLog, Signal, SignalResult
+from .task_type import detect_task_type
 
 # ── Keyword sets (litmus-tested against known transcripts) ─────────────────
 

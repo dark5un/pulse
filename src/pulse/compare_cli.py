@@ -5,8 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 
-from pulse.compare import compare_distributions
-from pulse.leaderboard_cli import load_corpus_records
+from .compare import compare_distributions
+from .leaderboard_cli import load_corpus_records
 
 
 def render(a: list[dict], b: list[dict], aname: str, bname: str) -> str:

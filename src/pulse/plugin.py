@@ -16,26 +16,21 @@ Subcommands:
 
 import json
 import sqlite3
-import sys
 import time
 from pathlib import Path
 
-plugin_root = Path(__file__).resolve().parent
-pulse_src = plugin_root.parent.parent
-# Installed native plugins carry a nested package beside __init__.py.
-if (plugin_root / "pulse").is_dir():
-    pulse_src = plugin_root
-if str(pulse_src) not in sys.path:
-    sys.path.insert(0, str(pulse_src))
-
-from pulse.paths import state_db
-from pulse.scoring import score_penalties
-from pulse.session_store import load_session
-from pulse.signals import extract_signals
-from pulse.weights import apply as apply_weight
-from pulse.weights import get_feedback_count, record_feedback
-from pulse.weights import load as load_weights
-from pulse.weights import save as save_weights
+# NOTE: no sys.path manipulation here. The Hermes directory loader imports
+# this file as a real package (hermes_plugins.pulse, __path__ = plugin dir),
+# so sibling modules resolve via relative import. Absolute `pulse.*` imports
+# below would resolve against cwd — keep everything relative.
+from .paths import state_db
+from .scoring import score_penalties
+from .session_store import load_session
+from .signals import extract_signals
+from .weights import apply as apply_weight
+from .weights import get_feedback_count, record_feedback
+from .weights import load as load_weights
+from .weights import save as save_weights
 
 TABLE_DDL = """
 CREATE TABLE IF NOT EXISTS pulse_results (
@@ -102,7 +97,7 @@ def _write_result(conn: sqlite3.Connection, session_id: str, model: str,
 
 def _load_session(session_id: str | None = None) -> tuple[list[dict], str, str]:
     """Load through the shared defensive session store."""
-    from pulse.session_store import SchemaIncompatibleError
+    from .session_store import SchemaIncompatibleError
 
     try:
         return load_session(session_id)
@@ -373,7 +368,7 @@ def _handle_deep() -> str:
     """
     import time
 
-    from pulse.signals_deep import build_prompt, parse_verdict_text
+    from .signals_deep import build_prompt, parse_verdict_text
 
     t0 = time.time()
     messages, sid, model = _load_session(None)

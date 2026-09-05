@@ -12,7 +12,7 @@ from __future__ import annotations
 import subprocess
 import sys
 
-from pulse.unroll_loader import load_unroll_trace
+from .unroll_loader import load_unroll_trace
 
 
 def step_signature(entry: dict) -> str:

@@ -4,7 +4,7 @@ version = "0.6.0"
 description = "Session health monitor for Hermes conversations — attribute human vs agent session quality with evidence-based signals"
 authors = [{ name = "OnlyASCII Ltd" }]
 license = { text = "MIT" }
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = []
 
 [project.scripts]

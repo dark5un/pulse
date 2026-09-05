@@ -36,7 +36,7 @@ def resolve_api_key() -> str:
         val = os.environ.get(var)
         if val:
             return val
-    from pulse.paths import hermes_home
+    from .paths import hermes_home
 
     env_file = hermes_home() / ".env"
     try:

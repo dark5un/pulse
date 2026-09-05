@@ -4,7 +4,7 @@ Every detector that relies on task-type context must call this
 consistently, not duplicate the heuristic.
 """
 
-from pulse.constants import (
+from .constants import (
     RESEARCH_TOOLS,
     TASK_BRAINSTORM,
     TASK_CHAT,

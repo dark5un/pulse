@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from pulse.artifact import bundle, verify
+from .artifact import bundle, verify
 
 
 def main(argv: list[str] | None = None) -> int:

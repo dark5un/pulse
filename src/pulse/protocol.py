@@ -6,8 +6,8 @@ import sys
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from pulse.scoring import score_penalties
-from pulse.signals import extract_signals
+from .scoring import score_penalties
+from .signals import extract_signals
 
 SCHEMA_VERSION = 1
 

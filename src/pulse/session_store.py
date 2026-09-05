@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from pulse.paths import state_db
+from .paths import state_db
 
 
 class SchemaIncompatibleError(ValueError):

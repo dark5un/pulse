@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from pulse.paths import weights_file
+from .paths import weights_file
 
 DEFAULT_WEIGHTS: dict[str, dict[str, Any]] = {
     name: {"penalty": penalty, "useful": 0, "not_useful": 0}

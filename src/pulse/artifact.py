@@ -19,9 +19,9 @@ import json
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-import pulse
-from pulse.export import REDACTION_RECEIPT
-from pulse.trace_score import score_trace_file
+from . import __version__ as _pkg_version
+from .export import REDACTION_RECEIPT
+from .trace_score import score_trace_file
 
 #: Bump whenever the artifact on-disk schema changes in a way old
 #: verifiers cannot read. Stored in ``run-manifest.json``.
@@ -39,7 +39,7 @@ def _pulse_version() -> str:
         # Editable checkout, isolated tool install, or any environment
         # without distribution metadata — fall back to the single source
         # of truth in the package itself so run-manifests stay pinnable.
-        return pulse.__version__
+        return _pkg_version
 
 
 def bundle(trace: str, out_dir: str | Path = ".") -> str:
@@ -101,7 +101,7 @@ def verify(artifact_dir: str | Path) -> dict:
             }
     required = ", ".join(REQUIRED_TRACE_CONSTANTS)
     try:
-        from pulse.unroll_loader import load_unroll_trace
+        from .unroll_loader import load_unroll_trace
 
         load_unroll_trace(str(trace))
         text = trace.read_text()
