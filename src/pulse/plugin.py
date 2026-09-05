@@ -410,10 +410,13 @@ def _handle_deep() -> str:
     in_tok = getattr(usage, "input_tokens", 0) or 0
     out_tok = getattr(usage, "output_tokens", 0) or 0
     total = (getattr(usage, "total_tokens", 0) or 0) or (in_tok + out_tok)
-    # Cost: host-reported dollars when the harness supplies them;
-    # otherwise tokens only — never estimated, never fabricated.
+    # Cost: dollars from Hermes alone when it reports them;
+    # otherwise tokens are enough — never estimated, never fabricated.
     cost = getattr(usage, "cost_usd", None)
-    cost_label = f", ~${cost:.4f} (host-reported)" if cost is not None else ""
+    if cost is not None:
+        cost_label = f", ~${cost:.4f} (cost from Hermes)"
+    else:
+        cost_label = " (Hermes reported no dollar cost; tokens are enough)"
     elapsed = time.time() - t0
     conn = _get_db()
     _write_result(conn, sid, model, task_type, result, signals_flat, run_mode="deep")

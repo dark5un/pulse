@@ -310,3 +310,4 @@ def test_pulse_deep_without_host_cost_shows_tokens_only(monkeypatch, tmp_path):
     out = ctx.handler("deep")
     assert "150 tokens" in out
     assert "$" not in out
+    assert "Hermes reported no dollar cost; tokens are enough" in out
