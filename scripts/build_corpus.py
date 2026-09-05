@@ -34,6 +34,10 @@ def main() -> int:
 
     trace_dir = Path(args.traces)
     out_dir = Path(args.out)
+    try:
+        same_dir = trace_dir.resolve() == out_dir.resolve()
+    except OSError:
+        same_dir = False
     traces = sorted(trace_dir.glob("*.py")) if trace_dir.is_dir() else []
     if not traces:
         print(f"No traces found in {trace_dir}")
@@ -44,6 +48,14 @@ def main() -> int:
             scored.append(score_trace(t))
         except Exception as e:  # noqa: BLE001 — glue script, report and continue
             print(f"skip {t.name}: {e}")
+    if same_dir:
+        # Refresh mode: rescore in place, rewrite every sidecar, copy nothing.
+        out_dir.mkdir(parents=True, exist_ok=True)
+        for rec in scored:
+            src = Path(rec["path"])
+            (out_dir / (src.stem + ".score.json")).write_text(json.dumps(rec, indent=2))
+        print(f"refreshed {len(scored)} sidecars in {out_dir}")
+        return 0
     scored.sort(key=lambda r: r["score"])
     kept = scored[: args.keep]
     out_dir.mkdir(parents=True, exist_ok=True)
