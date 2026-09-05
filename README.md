@@ -73,6 +73,21 @@ trace files + sidecars. Copy-paste GitHub Actions snippet:
   run: uv run python scripts/pulse_gate.py --baseline corpus/main --candidate corpus/pr
 ```
 
+### Red-team calmness
+
+Adversarial prompts live in `scripts/redteam/prompts.md` (12 prompts, 4
+categories: ambiguous reference, contradictory instructions, mid-task scope
+creep, missing-context traps). Run each prompt as a live session per model,
+capture the traces, then rank:
+
+```bash
+uv run python scripts/redteam_score.py --traces redteam_traces/ [--json]
+```
+
+Per model: mean score plus frustration / correction-chain / reasoning-loop
+counts per 10 sessions, calmest first. Standalone: needs no Hermes install
+— input is a plain directory of trace files.
+
 ## Native integrations
 
 ### Hermes Agent
