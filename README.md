@@ -14,7 +14,7 @@ Pulse is a harness-neutral session quality engine with native integrations for H
 | `/pulse useful` / `/pulse not-useful` | Rate the latest analysis (idempotent) |
 | `/pulse yes` / `/pulse no` | Rate whether the session solved the problem |
 
-The CLI supports `--file`, `--session`, and `--json`. `pulse analyze` is the versioned stdin/stdout JSON protocol used by adapters. `--deep` is reserved and explicitly **not implemented**; Pulse currently performs deterministic analysis only.
+The CLI supports `--file`, `--session`, and `--json`. `pulse analyze` is the versioned stdin/stdout JSON protocol used by adapters. `--deep` adds opt-in LLM-judge analysis (B2) on top of deterministic signals; see below.
 
 ### `--unroll` mode
 
@@ -33,6 +33,39 @@ authoritative. Three unroll-native detectors run on top of the standard set
 - `latency_regression` (warning) — any step with `duration_ms > 5000`
 - `cost_anomaly` (warning) — `cost_usd` above task ceiling (brainstorm $0.50, coding $5.00)
 - `skill_deadweight` (warning with correction, else info) — skill in `ACTIVE_SKILLS` with zero `tool_call` steps
+
+### `--deep` LLM-judge mode (B2, provisional until agreement-gated)
+
+```bash
+uv run pulse --unroll <trace.py> --deep [--judge-model gpt-4o-mini] [--json]
+```
+
+One combined temperature-0 call per session; four verdicts become normal
+`Signal`s: `goal_completion`, `context_retention`, `correction_quality`
+(user-targeted), `hallucination`. Unparseable judge output yields zero
+signals — never fabricated. Judge failure is fatal (exit 1), never a
+silent fallback. `--json` gains a `deep` key (model, signal names,
+input/output tokens).
+
+Config (plugin-prefixed first): `PULSE_API_KEY` → `OPENAI_API_KEY` →
+`HERMES_API_KEY` → `~/.hermes/.env`; model override `PULSE_JUDGE_MODEL`,
+base URL `PULSE_JUDGE_BASE_URL`. Cost envelope ~$0.02–0.05/session
+(gpt-4o-mini); opt-in only — deterministic mode stays the default.
+
+Agreement gate (required before any hosted-judge claims):
+
+```bash
+uv run pulse agreement --corpus DIR --limit 50 [--cache FILE] [--json]
+```
+
+Judge-vs-deterministic Cohen's kappa on the comparable pairs
+(`correction_quality`↔`correction_chain`, `goal_completion`↔`premature_stop`;
+hallucination/context-retention report judge-rates + need human
+spot-check, never kappa). Verdict cache keyed by trace hash + prompt
+version makes reruns free. **PASS needs kappa ≥ 0.6 at n ≥ 50** — until
+then every deep signal stays labeled provisional. Status (2026-09-05):
+gate not yet run against a real key (no API key in this environment);
+numbers will be published when measured, not before.
 
 ### Session gym
 
@@ -241,6 +274,8 @@ Tests use an autouse temporary `HERMES_HOME`; they never write the developer's r
 
 - `src/pulse/signals.py` — pure deterministic detectors
 - `src/pulse/signals_unroll.py` — unroll-native detectors (latency, cost, skill deadweight; provisional thresholds)
+- `src/pulse/judge.py` + `signals_deep.py` — `--deep` LLM-judge backend (stdlib urllib, stub for tests) + 4 verdict detectors
+- `src/pulse/agreement.py` + `agreement_cli.py` — `pulse agreement` (kappa gate, verdict cache)
 - `src/pulse/unroll_loader.py` — safe trace loader (AST only, never executes) + timeline→messages
 - `scripts/build_corpus.py` — session-gym corpus curator (bottom-10 + sidecar JSON)
 - `src/pulse/replay.py` + `replay_cli.py` — `pulse replay` (corpus fan-out runner)
