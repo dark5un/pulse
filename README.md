@@ -54,6 +54,24 @@ uv run pulse leaderboard --corpus corpus --json     # machine output
 Loads `*.score.json` sidecars (scores `*.py` traces live when a sidecar is
 missing). Ranks top/bottom 3 per task type; session IDs are anonymized
 (sha256, first 12 chars); score ties break toward lower cost.
+Standalone: needs no Hermes install — just `pip install hermes-pulse` and a
+directory of trace files.
+
+### Quality as a merge check
+
+```bash
+uv run python scripts/pulse_gate.py --baseline corpus/main --candidate corpus/pr [--tolerance 5.0]
+```
+
+Exit 0 on pass, exit 1 on fail, with a per-task delta table. Fails when any
+task-type mean score drops more than `--tolerance` points (default 5.0).
+Standalone: needs no Hermes install — both inputs are plain directories of
+trace files + sidecars. Copy-paste GitHub Actions snippet:
+
+```yaml
+- name: Pulse quality gate
+  run: uv run python scripts/pulse_gate.py --baseline corpus/main --candidate corpus/pr
+```
 
 ## Native integrations
 
