@@ -11,8 +11,8 @@ Pulse is a harness-neutral session quality engine with native integrations for H
 | `/pulse` | Analyze the current/latest session |
 | `/pulse trends` | Show the latest 20 analyses |
 | `/pulse models` | Compare analyzed models |
-| `/pulse useful` / `/pulse not-useful` | Rate the latest analysis (idempotent) |
-| `/pulse yes` / `/pulse no` | Rate whether the session solved the problem |
+| `/pulse useful` / `/pulse not-useful` | Rate this session's analysis (bound to the session just analyzed, idempotent) |
+| `/pulse yes` / `/pulse no` | Rate whether this session solved the problem |
 
 The CLI supports `--file`, `--session`, and `--json`. `pulse analyze` is the versioned stdin/stdout JSON protocol used by adapters. `--deep` adds opt-in LLM-judge analysis (B2) on top of deterministic signals; see below.
 

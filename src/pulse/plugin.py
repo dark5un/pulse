@@ -102,7 +102,12 @@ def _write_result(conn: sqlite3.Connection, session_id: str, model: str,
 
 def _load_session(session_id: str | None = None) -> tuple[list[dict], str, str]:
     """Load through the shared defensive session store."""
-    return load_session(session_id)
+    from pulse.session_store import SchemaIncompatibleError
+
+    try:
+        return load_session(session_id)
+    except SchemaIncompatibleError:
+        return [], "", ""
 
 def _shorten_model(name: str) -> str:
     """Shorten a model name for display."""
@@ -339,6 +344,25 @@ def _handle_models() -> str:
 
 _LLM_CTX = None  # stashed PluginContext — slash handlers receive only raw_args
 
+#: Session id of the most recently analyzed session in this process.
+#: All feedback verbs bind to it — never to a global latest row.
+_CURRENT_SESSION_ID: str | None = None
+
+
+def _set_current_session(session_id: str) -> None:
+    global _CURRENT_SESSION_ID
+    _CURRENT_SESSION_ID = session_id
+
+
+def _feedback_target(conn: sqlite3.Connection) -> sqlite3.Row | None:
+    """Resolve the feedback target: current session's row, else None."""
+    if _CURRENT_SESSION_ID is None:
+        return None
+    return conn.execute(
+        "SELECT session_id, signal_details, feedback_rating FROM pulse_results WHERE session_id = ?",
+        (_CURRENT_SESSION_ID,),
+    ).fetchone()
+
 
 def _handle_deep() -> str:
     """Deterministic analysis + one host-owned LLM-judge call (costs tokens!).
@@ -373,6 +397,10 @@ def _handle_deep() -> str:
     runtime_logs_serialised = _serialise_runtime_logs(result)
     llm = getattr(_LLM_CTX, "llm", None) if _LLM_CTX is not None else None
     if llm is None:
+        conn = _get_db()
+        _write_result(conn, sid, model, task_type, result, signals_flat, run_mode="deep_unavailable")
+        conn.close()
+        _set_current_session(sid)
         card = _render_card(result, signals_flat, task_type, model,
                             runtime_logs=runtime_logs_serialised)
         return card + (
@@ -390,6 +418,10 @@ def _handle_deep() -> str:
             purpose="pulse-deep-judge",
         )
     except Exception as e:  # noqa: BLE001 — judge failure must surface, never swallow
+        conn = _get_db()
+        _write_result(conn, sid, model, task_type, result, signals_flat, run_mode="deep_failed")
+        conn.close()
+        _set_current_session(sid)
         card = _render_card(result, signals_flat, task_type, model,
                             runtime_logs=runtime_logs_serialised)
         return card + (
@@ -420,8 +452,9 @@ def _handle_deep() -> str:
         cost_label = " (Hermes reported no dollar cost; tokens are enough)"
     elapsed = time.time() - t0
     conn = _get_db()
-    _write_result(conn, sid, model, task_type, result, signals_flat, run_mode="deep")
+    _write_result(conn, sid, model, task_type, result, signals_flat, run_mode="deep_success")
     conn.close()
+    _set_current_session(sid)
     card = _render_card(result, signals_flat, task_type, model,
                         runtime_logs=runtime_logs_serialised)
     judge_lines = [
@@ -453,10 +486,10 @@ def _handle_pulse(raw_args: str) -> str:
     if args in {"useful", "not-useful", "not useful"}:
         useful = args == "useful"
         conn = _get_db()
-        row = conn.execute("SELECT session_id, signal_details, feedback_rating FROM pulse_results ORDER BY run_at DESC LIMIT 1").fetchone()
+        row = _feedback_target(conn)
         if not row:
             conn.close()
-            return "No pulse results to rate. Run /pulse first."
+            return "No pulse analysis for this session yet. Run /pulse first, then rate it."
         if row["feedback_rating"] is not None:
             conn.close()
             return "This pulse result is already rated; feedback was not counted again."
@@ -477,12 +510,13 @@ def _handle_pulse(raw_args: str) -> str:
 
     if args in ("yes", "y"):
         conn = _get_db()
-        row = conn.execute("SELECT session_id FROM pulse_results ORDER BY run_at DESC LIMIT 1").fetchone()
+        row = _feedback_target(conn)
         if not row:
             conn.close()
-            return "No pulse results to update. Run /pulse first."
+            return "No pulse analysis for this session yet. Run /pulse first."
         conn.execute(
-            "UPDATE pulse_results SET outcome_rating = 1 WHERE session_id = (SELECT session_id FROM pulse_results ORDER BY run_at DESC LIMIT 1)"
+            "UPDATE pulse_results SET outcome_rating = 1 WHERE session_id = ?",
+            (row["session_id"],),
         )
         conn.commit()
         conn.close()
@@ -490,12 +524,13 @@ def _handle_pulse(raw_args: str) -> str:
 
     if args in ("no", "n"):
         conn = _get_db()
-        row = conn.execute("SELECT session_id FROM pulse_results ORDER BY run_at DESC LIMIT 1").fetchone()
+        row = _feedback_target(conn)
         if not row:
             conn.close()
-            return "No pulse results to update. Run /pulse first."
+            return "No pulse analysis for this session yet. Run /pulse first."
         conn.execute(
-            "UPDATE pulse_results SET outcome_rating = 0 WHERE session_id = (SELECT session_id FROM pulse_results ORDER BY run_at DESC LIMIT 1)"
+            "UPDATE pulse_results SET outcome_rating = 0 WHERE session_id = ?",
+            (row["session_id"],),
         )
         conn.commit()
         conn.close()
@@ -540,6 +575,7 @@ def _handle_pulse(raw_args: str) -> str:
     conn = _get_db()
     _write_result(conn, sid, model, task_type, result, signals_flat)
     conn.close()
+    _set_current_session(sid)
 
     return _render_card(result, signals_flat, task_type, model, runtime_logs=runtime_logs_serialised)
 

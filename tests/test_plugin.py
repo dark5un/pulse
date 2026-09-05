@@ -279,7 +279,7 @@ def test_pulse_deep_persists_run_mode(monkeypatch, tmp_path):
     conn = sqlite3.connect(str(state_db()))
     row = conn.execute("SELECT run_mode FROM pulse_results WHERE session_id='sess-deep-1'").fetchone()
     conn.close()
-    assert row[0] == "deep"
+    assert row[0] == "deep_success"
 
 
 def test_pulse_deep_without_host_cost_shows_tokens_only(monkeypatch, tmp_path):

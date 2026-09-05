@@ -9,6 +9,10 @@ from typing import Any
 from pulse.paths import state_db
 
 
+class SchemaIncompatibleError(ValueError):
+    """Valid SQLite, but not a Hermes session DB (missing tables/columns)."""
+
+
 def _decode_tool_calls(raw: Any) -> list[dict[str, Any]]:
     if not raw:
         return []
@@ -26,6 +30,12 @@ def load_session(session_id: str | None = None, db_path: Path | None = None) -> 
     try:
         with sqlite3.connect(str(db)) as conn:
             conn.row_factory = sqlite3.Row
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            missing = {"sessions", "messages"} - tables
+            if missing:
+                raise SchemaIncompatibleError(
+                    f"not a Hermes session database (missing tables: {sorted(missing)})"
+                )
             sid = session_id
             if sid is None:
                 row = conn.execute("SELECT id FROM sessions ORDER BY last_activity_at DESC LIMIT 1").fetchone()
@@ -38,9 +48,13 @@ def load_session(session_id: str | None = None, db_path: Path | None = None) -> 
             rows = conn.execute(
                 "SELECT role, content, tool_calls, tool_name FROM messages WHERE session_id=? ORDER BY id", (sid,)
             ).fetchall()
-    except sqlite3.OperationalError:
-        # A non-Hermes/empty SQLite file is not a session database.
-        return [], "", ""
+    except sqlite3.OperationalError as e:
+        # A corrupt/unreadable SQLite file is not a session database —
+        # but say so explicitly instead of mimicking "empty".
+        msg = str(e).lower()
+        if "no such table" in msg or "no such column" in msg:
+            raise SchemaIncompatibleError(f"not a Hermes session database: {e}") from e
+        raise SchemaIncompatibleError(f"unreadable session database: {e}") from e
     messages = []
     for row in rows:
         msg = {"role": row["role"], "content": row["content"] or ""}

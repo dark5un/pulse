@@ -10,7 +10,13 @@ from pulse.signals import extract_signals
 
 
 def load_session_from_db(session_id: str | None = None, db_path: Path | None = None) -> list[dict]:
-    return load_messages(session_id, db_path)
+    from pulse.session_store import SchemaIncompatibleError
+
+    try:
+        return load_messages(session_id, db_path)
+    except SchemaIncompatibleError as e:
+        print(f"Session database incompatible: {e}")
+        raise SystemExit(2) from e
 
 
 def render_card(result, task_type: str, unroll_meta: dict | None = None) -> str:
@@ -84,9 +90,12 @@ def main() -> None:
     parser.add_argument("--judge-model", default="", help="Judge model (default: PULSE_JUDGE_MODEL or gpt-4o-mini)")
     parser.add_argument("--judge-base-url", default="", help="Judge API base URL (default: PULSE_JUDGE_BASE_URL)")
     parser.add_argument("--json", action="store_true", help="JSON output")
+    parser.add_argument("--best-effort", action="store_true",
+                        help="Skip malformed JSONL lines instead of failing (reports skip count)")
     args = parser.parse_args()
     messages: list[dict] = []
     unroll_meta: dict = {}
+    malformed: list[int] = []
     bundle = None
     if args.unroll:
         from pulse.unroll_loader import bundle_to_messages, load_unroll_trace
@@ -103,11 +112,18 @@ def main() -> None:
         }
     elif args.file:
         with open(args.file, encoding="utf-8") as f:
-            for line in f:
-                try:
-                    if line.strip(): messages.append(json.loads(line))
-                except json.JSONDecodeError:
+            for lineno, line in enumerate(f, start=1):
+                if not line.strip():
                     continue
+                try:
+                    messages.append(json.loads(line))
+                except json.JSONDecodeError:
+                    malformed.append(lineno)
+                    continue
+        if malformed and not args.best_effort:
+            lines = ", ".join(f"line {n}" for n in malformed)
+            print(f"Malformed JSONL: {len(malformed)} bad line(s) ({lines}). Re-run with --best-effort to skip.")
+            raise SystemExit(1)
     else:
         messages = load_session_from_db(args.session, state_db())
     if not messages:
@@ -154,10 +170,14 @@ def main() -> None:
     task_type = result.metrics.get("task_type", "chat")
     if args.json:
         payload: dict = {"task_type": task_type, "unroll": unroll_meta, "metrics": {k:v for k,v in result.metrics.items() if k not in {"user_texts", "agent_texts"}}, "signals": [{"name":s.name,"target":s.target,"severity":s.severity,"penalty":s.penalty,"label":s.label,"evidence":s.evidence[:2]} for s in result.signals]}
+        if malformed:
+            payload["malformed_lines"] = malformed
         if deep_info is not None:
             payload["deep"] = deep_info
         print(json.dumps(payload, indent=2))
     else:
+        if malformed:
+            print(f"  skipped {len(malformed)} malformed line(s) (--best-effort).")
         if deep_info is not None:
             print(f"  deep judge {deep_info['model']}: {', '.join(deep_info['signals']) or 'no findings'} "
                   f"({deep_info['input_tokens']} in / {deep_info['output_tokens']} out tokens)")

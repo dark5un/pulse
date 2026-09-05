@@ -8,6 +8,21 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Deep-mode persistence (PU-4): every `/pulse deep` exit now writes exactly
+  one row — `deep_unavailable` (host LLM lane missing), `deep_failed`
+  (judge raised), `deep_success` — so no analysis vanishes from
+  trends/models. Previously only the success path persisted.
+- Session-bound feedback (PU-5): `useful`/`not-useful`/`yes`/`no` bind to
+  the session just analyzed (`_CURRENT_SESSION_ID`), never to a global
+  `ORDER BY run_at DESC LIMIT 1` row — concurrent sessions can no longer
+  cross-rate. Rating a session with no analysis reports that explicitly.
+- Typed session-DB errors (PU-8): `load_session()` raises
+  `SchemaIncompatibleError` for valid-SQLite-but-wrong-schema files,
+  distinct from missing DB (empty) and from empty DB; the CLI exits 2 with
+  the cause, the plugin treats it as no-session.
+- Strict JSONL (PU-9): malformed lines fail with exit 1, line numbers and a
+  count; `--best-effort` opts into skipping, and `--json` carries
+  `malformed_lines`.
 - Trace loader hardening (PU-2): new `TraceSchemaError(ValueError)` naming
   the offending field — `COST`/`USAGE`/`STATE_GRAPH`/`DEPENDENCIES` must be
   mappings, `TIMELINE` a list of mappings, skills/tags string lists,
