@@ -34,13 +34,28 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Hermes Pulse — session health monitor")
     parser.add_argument("--file", "-f", help="Session JSONL file")
     parser.add_argument("--session", "-s", help="Session ID from state.db")
+    parser.add_argument("--unroll", help="Unroll trace .py file (safe AST load, never executes)")
     parser.add_argument("--deep", action="store_true", help="Reserved; not implemented")
     parser.add_argument("--json", action="store_true", help="JSON output")
     args = parser.parse_args()
     if args.deep:
         parser.error("--deep is not implemented; use deterministic analysis")
     messages: list[dict] = []
-    if args.file:
+    unroll_meta: dict = {}
+    if args.unroll:
+        from pulse.unroll_loader import bundle_to_messages, load_unroll_trace
+
+        bundle = load_unroll_trace(args.unroll)
+        messages = bundle_to_messages(bundle)
+        unroll_meta = {
+            "session_id": bundle.session_id,
+            "model": bundle.model,
+            "provider": bundle.provider,
+            "cost_usd": bundle.cost_usd,
+            "active_skills": bundle.active_skills,
+            "timeline_steps": len(bundle.timeline),
+        }
+    elif args.file:
         with open(args.file, encoding="utf-8") as f:
             for line in f:
                 try:
@@ -58,7 +73,7 @@ def main() -> None:
         return
     task_type = result.metrics.get("task_type", "chat")
     if args.json:
-        print(json.dumps({"task_type": task_type, "metrics": {k:v for k,v in result.metrics.items() if k not in {"user_texts", "agent_texts"}}, "signals": [{"name":s.name,"target":s.target,"severity":s.severity,"penalty":s.penalty,"label":s.label,"evidence":s.evidence[:2]} for s in result.signals]}, indent=2))
+        print(json.dumps({"task_type": task_type, "unroll": unroll_meta, "metrics": {k:v for k,v in result.metrics.items() if k not in {"user_texts", "agent_texts"}}, "signals": [{"name":s.name,"target":s.target,"severity":s.severity,"penalty":s.penalty,"label":s.label,"evidence":s.evidence[:2]} for s in result.signals]}, indent=2))
     else:
         print(render_card(result, task_type))
 
