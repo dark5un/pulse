@@ -1,6 +1,6 @@
 [project]
 name = "hermes-pulse"
-version = "0.5.0"
+version = "0.6.0"
 description = "Session health monitor for Hermes conversations — attribute human vs agent session quality with evidence-based signals"
 authors = [{ name = "OnlyASCII Ltd" }]
 license = { text = "MIT" }

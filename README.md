@@ -62,10 +62,13 @@ Judge-vs-deterministic Cohen's kappa on the comparable pairs
 (`correction_quality`↔`correction_chain`, `goal_completion`↔`premature_stop`;
 hallucination/context-retention report judge-rates + need human
 spot-check, never kappa). Verdict cache keyed by trace hash + prompt
-version makes reruns free. **PASS needs kappa ≥ 0.6 at n ≥ 50** — until
-then every deep signal stays labeled provisional. Status (2026-09-05):
-gate not yet run against a real key (no API key in this environment);
-numbers will be published when measured, not before.
+version, makes reruns free. **PASS needs kappa ≥ 0.6 at n ≥ 50** — until
+then every deep signal stays labeled provisional. First real-key run
+(2026-09-05, `openai/gpt-4o-mini` via OpenRouter, local 10-trace corpus):
+judge returned zero verdicts on all 10 traces — thin textless TIMELINEs give
+it nothing to grade — so kappa=0.0/agree=1.0 on both pairs, gate FAIL
+(pending) as designed. The gate needs n ≥ 50 rich sessions before any
+hosted-judge claim; numbers published as measured, not before.
 
 ### Session gym
 

@@ -4,10 +4,19 @@ All notable changes to hermes-pulse. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.6.0] - 2026-09-05
 
 ### Added
 
+- `/pulse deep` slash command (host `ctx.llm` lane — reuses the live Hermes
+  model connection, no keys): deterministic analysis + one temperature-0
+  JSON-mode judge call; verdicts land on the card with model, tokens,
+  elapsed; persists `run_mode='deep'`. Judge failure is loud (error string +
+  deterministic card), never silent.
+- Cost honesty for deep runs: dollars from Hermes alone (`cost_usd` when the
+  harness reports it → `~$X (cost from Hermes)`); otherwise the card states
+  "Hermes reported no dollar cost; tokens are enough". No local price table,
+  nothing estimated, nothing to go stale.
 - `--deep` LLM-judge mode (B2, provisional until agreement-gated): one
   combined temperature-0 call per session via stdlib `urllib` (no new
   deps); four verdicts become normal `Signal`s — `goal_completion`,
@@ -19,8 +28,12 @@ versions follow [Semantic Versioning](https://semver.org/).
   `extra_signals` + `deep` (deterministic sidecars byte-identical).
 - `pulse agreement` — judge-vs-deterministic Cohen's kappa on the
   comparable pairs plus a verdict cache (trace-hash + prompt-version keyed).
-  PASS needs kappa ≥ 0.6 at n ≥ 50. Status: gate not yet run against a real
-  key; numbers will be published when measured, not before.
+  PASS needs kappa ≥ 0.6 at n ≥ 50. First real-key run (2026-09-05,
+  `openai/gpt-4o-mini` via OpenRouter, local 10-trace corpus): judge returned
+  zero verdicts on all 10 traces (empty verdict lists — thin textless
+  TIMELINEs give the judge nothing to grade), so kappa=0.0/agree=1.0 on both
+  pairs and the gate correctly reports FAIL (pending). Numbers published as
+  measured; gate needs n ≥ 50 rich sessions before any hosted-judge claim.
 - Capture-side session tags (C2-a): set `UNROLL_SESSION_TAGS="team-a,feat-x"`
   (`HERMES_SESSION_TAGS` legacy fallback) — unroll writes a `SESSION_TAGS`
   constant, sidecars carry `session_tags`, `pulse costs --group-by tag`
