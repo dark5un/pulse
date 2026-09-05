@@ -6,6 +6,7 @@ Usage:
 
 Each kept trace is copied into the corpus dir with a sidecar JSON holding
 its score, signals, cost, and model. Glue script — verified ad-hoc, no unit test.
+Scoring lives in src/pulse/trace_score.py (shared with leaderboard/gates).
 """
 
 import argparse
@@ -16,35 +17,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from pulse.signals import extract_signals
-from pulse.signals_unroll import detect_cost, detect_latency, detect_skill_deadweight
-from pulse.unroll_loader import bundle_to_messages, load_unroll_trace
+from pulse.trace_score import score_trace_file
 
 
 def score_trace(path: Path) -> dict:
-    bundle = load_unroll_trace(str(path))
-    messages = bundle_to_messages(bundle)
-    result = extract_signals(messages)
-    task_type = result.metrics.get("task_type", "coding")
-    unroll_sigs = (
-        detect_latency(bundle)
-        + detect_cost(bundle, task_type)
-        + detect_skill_deadweight(bundle, messages)
-    )
-    all_sigs = list(result.signals) + unroll_sigs
-    penalty = sum(s.penalty for s in all_sigs)
-    score = max(0, min(100, round(100 - penalty)))
-    return {
-        "path": str(path),
-        "session_id": bundle.session_id,
-        "model": bundle.model,
-        "score": score,
-        "penalty": penalty,
-        "cost_usd": bundle.cost_usd,
-        "task_type": task_type,
-        "signals": [{"name": s.name, "severity": s.severity, "penalty": s.penalty,
-                     "label": s.label, "evidence": s.evidence[:2]} for s in all_sigs],
-    }
+    """Thin wrapper kept for backwards-compat; see pulse.trace_score."""
+    return score_trace_file(path)
 
 
 def main() -> int:
