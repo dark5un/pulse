@@ -19,13 +19,20 @@ class JudgeResult:
 
 
 class JudgeBackend:
+    def __init__(self) -> None:
+        self.last_result: JudgeResult | None = None
+
     def judge(self, prompt: str) -> JudgeResult:
         raise NotImplementedError
 
 
 def resolve_api_key() -> str:
-    """OPENAI_API_KEY -> HERMES_API_KEY -> ~/.hermes/.env (mirrors unroll)."""
-    for var in ("OPENAI_API_KEY", "HERMES_API_KEY"):
+    """PULSE_API_KEY -> OPENAI_API_KEY -> HERMES_API_KEY -> ~/.hermes/.env.
+
+    Plugin-specific vars carry the plugin prefix (PULSE_); the OpenAI/Hermes
+    fallbacks mirror unroll's existing key resolution.
+    """
+    for var in ("PULSE_API_KEY", "OPENAI_API_KEY", "HERMES_API_KEY"):
         val = os.environ.get(var)
         if val:
             return val
@@ -45,8 +52,12 @@ class OpenAIJudge(JudgeBackend):
     """Single chat-completions call, temperature 0, JSON object response."""
 
     def __init__(self, model: str = JUDGE_MODEL_DEFAULT, base_url: str = "") -> None:
-        self.model = model
-        self.base_url = (base_url or os.environ.get("OPENAI_BASE_URL", "")).rstrip("/")
+        super().__init__()
+        self.model = model or os.environ.get("PULSE_JUDGE_MODEL", JUDGE_MODEL_DEFAULT)
+        env_base = os.environ.get("PULSE_JUDGE_BASE_URL", "") or os.environ.get(
+            "OPENAI_BASE_URL", ""
+        )
+        self.base_url = (base_url or env_base).rstrip("/")
 
     def judge(self, prompt: str) -> JudgeResult:
         url = (
@@ -72,23 +83,29 @@ class OpenAIJudge(JudgeBackend):
             payload = json.load(resp)
         msg = payload["choices"][0]["message"]
         usage = payload.get("usage", {}) or {}
-        return JudgeResult(
+        res = JudgeResult(
             text=msg.get("content", "") or "",
             input_tokens=int(usage.get("prompt_tokens", 0)),
             output_tokens=int(usage.get("completion_tokens", 0)),
         )
+        self.last_result = res
+        return res
 
 
 class StubJudge(JudgeBackend):
     """Scripted results for offline tests. Pops in order; repeats last."""
 
     def __init__(self, script: list[JudgeResult]) -> None:
+        super().__init__()
         self.script = script
 
     def judge(self, prompt: str) -> JudgeResult:
         if len(self.script) > 1:
-            return self.script.pop(0)
-        return self.script[0]
+            res = self.script.pop(0)
+        else:
+            res = self.script[0]
+        self.last_result = res
+        return res
 
 
 __all__ = [

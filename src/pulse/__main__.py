@@ -3,6 +3,7 @@ import argparse
 import json
 from pathlib import Path
 
+from pulse.judge import JUDGE_MODEL_DEFAULT, OpenAIJudge
 from pulse.paths import state_db
 from pulse.session_store import load_messages
 from pulse.signals import extract_signals
@@ -76,11 +77,11 @@ def main() -> None:
     parser.add_argument("--file", "-f", help="Session JSONL file")
     parser.add_argument("--session", "-s", help="Session ID from state.db")
     parser.add_argument("--unroll", help="Unroll trace .py file (safe AST load, never executes)")
-    parser.add_argument("--deep", action="store_true", help="Reserved; not implemented")
+    parser.add_argument("--deep", action="store_true", help="Add LLM-judge analysis (B2; needs PULSE_API_KEY/OPENAI_API_KEY)")
+    parser.add_argument("--judge-model", default="", help="Judge model (default: PULSE_JUDGE_MODEL or gpt-4o-mini)")
+    parser.add_argument("--judge-base-url", default="", help="Judge API base URL (default: PULSE_JUDGE_BASE_URL)")
     parser.add_argument("--json", action="store_true", help="JSON output")
     args = parser.parse_args()
-    if args.deep:
-        parser.error("--deep is not implemented; use deterministic analysis")
     messages: list[dict] = []
     unroll_meta: dict = {}
     if args.unroll:
@@ -123,13 +124,39 @@ def main() -> None:
             + detect_skill_deadweight(bundle, messages)
         )
         result.signals.extend(unroll_signals)
+    deep_info: dict | None = None
+    if args.deep:
+        from pulse.signals_deep import detect_deep
+
+        backend = OpenAIJudge(model=args.judge_model or JUDGE_MODEL_DEFAULT, base_url=args.judge_base_url)
+        try:
+            deep_signals = detect_deep(messages, backend)
+        except SystemExit:
+            raise
+        except Exception as e:
+            print(f"deep judge failed: {e}")
+            raise SystemExit(1) from e
+        result.signals.extend(deep_signals)
+        jr = backend.last_result
+        deep_info = {
+            "model": getattr(backend, "model", JUDGE_MODEL_DEFAULT),
+            "signals": [s.name for s in deep_signals],
+            "input_tokens": jr.input_tokens if jr else 0,
+            "output_tokens": jr.output_tokens if jr else 0,
+        }
     if result.skipped_reason and not unroll_signals:
         print(f"SKIPPED: {result.skipped_reason} ({len(messages)} msgs, {result.metrics.get('user_turns', 0)} user turns)")
         return
     task_type = result.metrics.get("task_type", "chat")
     if args.json:
-        print(json.dumps({"task_type": task_type, "unroll": unroll_meta, "metrics": {k:v for k,v in result.metrics.items() if k not in {"user_texts", "agent_texts"}}, "signals": [{"name":s.name,"target":s.target,"severity":s.severity,"penalty":s.penalty,"label":s.label,"evidence":s.evidence[:2]} for s in result.signals]}, indent=2))
+        payload: dict = {"task_type": task_type, "unroll": unroll_meta, "metrics": {k:v for k,v in result.metrics.items() if k not in {"user_texts", "agent_texts"}}, "signals": [{"name":s.name,"target":s.target,"severity":s.severity,"penalty":s.penalty,"label":s.label,"evidence":s.evidence[:2]} for s in result.signals]}
+        if deep_info is not None:
+            payload["deep"] = deep_info
+        print(json.dumps(payload, indent=2))
     else:
+        if deep_info is not None:
+            print(f"  deep judge {deep_info['model']}: {', '.join(deep_info['signals']) or 'no findings'} "
+                  f"({deep_info['input_tokens']} in / {deep_info['output_tokens']} out tokens)")
         print(render_card(result, task_type, unroll_meta or None))
 
 if __name__ == "__main__":
