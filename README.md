@@ -2,6 +2,11 @@
 
 ![Pulse hero](assets/pulse-hero.png)
 
+> Experimental research tooling. Deterministic signals use provisional
+> thresholds (until ~100-session calibration); the LLM judge is
+> provisional until agreement-gated (kappa>=0.6, n>=50). Artifact
+> verification inspects, never executes.
+
 Pulse is a harness-neutral session quality engine with native integrations for Hermes Agent and Pi. It analyzes conversations with evidence-based signals attributed to the user, agent, or system, while preserving each harness's native session and state model.
 
 ## Commands
