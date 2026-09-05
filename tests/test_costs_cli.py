@@ -45,3 +45,25 @@ def test_costs_cli_group_by_task(tmp_path, capsys):
     d, reg = _setup(tmp_path)
     assert main(["--corpus", str(d), "--join", str(reg), "--group-by", "task"]) == 0
     assert "coding" in capsys.readouterr().out
+
+
+def test_costs_cli_group_by_tag(tmp_path, capsys):
+    import json as j
+
+    from pulse.costs_cli import main
+
+    d, reg = _setup(tmp_path)
+    rec = j.loads((d / "t.score.json").read_text())
+    rec["session_tags"] = ["team-a", "feat-x"]
+    (d / "t.score.json").write_text(j.dumps(rec))
+    assert main(["--corpus", str(d), "--join", str(reg), "--group-by", "tag"]) == 0
+    out = capsys.readouterr().out
+    assert "feat-x,team-a" in out
+
+
+def test_costs_cli_group_by_tag_untagged(tmp_path, capsys):
+    from pulse.costs_cli import main
+
+    d, reg = _setup(tmp_path)
+    assert main(["--corpus", str(d), "--join", str(reg), "--group-by", "tag"]) == 0
+    assert "untagged" in capsys.readouterr().out

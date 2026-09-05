@@ -32,3 +32,17 @@ def test_bundle_to_messages_rebuilds_roles():
     )
     msgs = bundle_to_messages(bundle)
     assert [m["role"] for m in msgs] == ["user", "assistant", "tool"]
+
+
+def test_loader_extracts_session_tags(tmp_path):
+    trace = tmp_path / "trace.py"
+    trace.write_text('SESSION_ID = "abc"\nSESSION_TAGS = ["team-a", "feat-x"]\nTIMELINE = []\n')
+    bundle = load_unroll_trace(str(trace))
+    assert bundle.session_tags == ["team-a", "feat-x"]
+
+
+def test_loader_missing_tags_defaults_empty(tmp_path):
+    trace = tmp_path / "trace.py"
+    trace.write_text('SESSION_ID = "abc"\nTIMELINE = []\n')
+    bundle = load_unroll_trace(str(trace))
+    assert bundle.session_tags == []

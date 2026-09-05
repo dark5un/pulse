@@ -40,6 +40,7 @@ def score_bundle(bundle: UnrollBundle, messages: list[dict] | None = None) -> di
         "cost_usd": bundle.cost_usd,
         "task_type": task_type,
         "active_skills": list(bundle.active_skills),
+        "session_tags": list(bundle.session_tags),
         "signals": [
             {
                 "name": s.name,

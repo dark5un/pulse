@@ -24,7 +24,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Cost attribution by team (join-side)")
     ap.add_argument("--corpus", default="corpus")
     ap.add_argument("--join", required=True, help="sessions.csv registry (session_id,team)")
-    ap.add_argument("--group-by", choices=("team", "task"), default="team")
+    ap.add_argument("--group-by", choices=("team", "task", "tag"), default="team")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
     records = load_corpus_records(args.corpus)
@@ -32,6 +32,14 @@ def main(argv: list[str] | None = None) -> int:
         records = [dict(r, session_id=r.get("task_type", "coding")) for r in records]
         mapping = {str(r.get("task_type", "coding")): str(r.get("task_type", "coding"))
                    for r in records}
+    elif args.group_by == "tag":
+        # Capture-side tags: group key is the sorted comma-joined tag set
+        # ("untagged" when empty). Multi-tag sessions count once, never double.
+        records = [
+            dict(r, session_id=",".join(sorted(r.get("session_tags", []) or [])) or "untagged")
+            for r in records
+        ]
+        mapping = {str(r["session_id"]): str(r["session_id"]) for r in records}
     else:
         mapping = load_mapping(args.join)
     groups = rollup(records, mapping)

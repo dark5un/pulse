@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 
 WANTED_KEYS = ("SESSION_ID", "MODEL", "PROVIDER", "TIMELINE", "USAGE",
                "COST", "STATE_GRAPH", "DEPENDENCIES", "ACTIVE_SKILLS",
-               "TOOL_SCHEMAS", "PROVIDER_CONFIG", "RESPONSE_CACHE")
+               "TOOL_SCHEMAS", "PROVIDER_CONFIG", "RESPONSE_CACHE", "SESSION_TAGS")
 
 
 @dataclass
@@ -25,6 +25,7 @@ class UnrollBundle:
     dependencies: dict = field(default_factory=dict)
     active_skills: list = field(default_factory=list)
     tool_schemas: list = field(default_factory=list)
+    session_tags: list = field(default_factory=list)
 
 
 def load_unroll_trace(path: str) -> UnrollBundle:
@@ -55,6 +56,7 @@ def load_unroll_trace(path: str) -> UnrollBundle:
         dependencies=found.get("DEPENDENCIES", {}) or {},
         active_skills=found.get("ACTIVE_SKILLS", []) or [],
         tool_schemas=found.get("TOOL_SCHEMAS", []) or [],
+        session_tags=list(found.get("SESSION_TAGS", []) or []),
     )
 
 
