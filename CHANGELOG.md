@@ -4,6 +4,28 @@ All notable changes to hermes-pulse. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- `--deep` LLM-judge mode (B2, provisional until agreement-gated): one
+  combined temperature-0 call per session via stdlib `urllib` (no new
+  deps); four verdicts become normal `Signal`s — `goal_completion`,
+  `context_retention`, `correction_quality` (user-targeted),
+  `hallucination`. Config `PULSE_API_KEY` → `OPENAI_API_KEY` →
+  `HERMES_API_KEY` → `~/.hermes/.env`, model `PULSE_JUDGE_MODEL`,
+  base URL `PULSE_JUDGE_BASE_URL`. Unparseable output yields zero signals;
+  judge failure exits 1, never silent. `score_bundle` accepts
+  `extra_signals` + `deep` (deterministic sidecars byte-identical).
+- `pulse agreement` — judge-vs-deterministic Cohen's kappa on the
+  comparable pairs plus a verdict cache (trace-hash + prompt-version keyed).
+  PASS needs kappa ≥ 0.6 at n ≥ 50. Status: gate not yet run against a real
+  key; numbers will be published when measured, not before.
+- Capture-side session tags (C2-a): set `UNROLL_SESSION_TAGS="team-a,feat-x"`
+  (`HERMES_SESSION_TAGS` legacy fallback) — unroll writes a `SESSION_TAGS`
+  constant, sidecars carry `session_tags`, `pulse costs --group-by tag`
+  attributes with no registry CSV (`untagged` when empty).
+
 ## [0.4.0] - 2026-09-05
 
 ### Added
