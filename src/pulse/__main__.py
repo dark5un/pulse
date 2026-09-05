@@ -12,7 +12,7 @@ def load_session_from_db(session_id: str | None = None, db_path: Path | None = N
     return load_messages(session_id, db_path)
 
 
-def render_card(result, task_type: str) -> str:
+def render_card(result, task_type: str, unroll_meta: dict | None = None) -> str:
     user_signals = [s for s in result.signals if s.target == "user"]
     agent_signals = [s for s in result.signals if s.target == "agent"]
     all_signals = user_signals + agent_signals
@@ -23,6 +23,11 @@ def render_card(result, task_type: str) -> str:
              f"  │  {m['total_turns']:>3} turns  │  ~{m['total_tokens']:,} tokens  │  {m['tool_call_count']:>3} tool calls  │",
              f"  │  Type: {task_type:<12}  Status: {status:<5}             │",
              "  ╰─────────────────────────────────────────────────────╯", ""]
+    if unroll_meta:
+        lines.insert(5, f"  trace {unroll_meta.get('session_id', '?')} · {unroll_meta.get('timeline_steps', 0)} steps · ${unroll_meta.get('cost_usd', 0.0):.4f}")
+    for s in all_signals:
+        ev = f" — {s.evidence[0][:80]}" if s.evidence else ""
+        lines.append(f"  [{s.severity}] {s.name}: {s.label}{ev}")
     return "\n".join(lines)
 
 
@@ -68,14 +73,28 @@ def main() -> None:
         print("No messages found. Provide --file, --session, or run from a Hermes session.")
         raise SystemExit(1)
     result = extract_signals(messages)
-    if result.skipped_reason:
+    unroll_signals: list = []
+    if args.unroll:
+        from pulse.signals_unroll import (
+            detect_cost,
+            detect_latency,
+            detect_skill_deadweight,
+        )
+
+        unroll_signals = (
+            detect_latency(bundle)
+            + detect_cost(bundle, result.metrics.get("task_type", "coding"))
+            + detect_skill_deadweight(bundle, messages)
+        )
+        result.signals.extend(unroll_signals)
+    if result.skipped_reason and not unroll_signals:
         print(f"SKIPPED: {result.skipped_reason} ({len(messages)} msgs, {result.metrics.get('user_turns', 0)} user turns)")
         return
     task_type = result.metrics.get("task_type", "chat")
     if args.json:
         print(json.dumps({"task_type": task_type, "unroll": unroll_meta, "metrics": {k:v for k,v in result.metrics.items() if k not in {"user_texts", "agent_texts"}}, "signals": [{"name":s.name,"target":s.target,"severity":s.severity,"penalty":s.penalty,"label":s.label,"evidence":s.evidence[:2]} for s in result.signals]}, indent=2))
     else:
-        print(render_card(result, task_type))
+        print(render_card(result, task_type, unroll_meta or None))
 
 if __name__ == "__main__":
     main()
