@@ -36,6 +36,12 @@ def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "analyze":
         from pulse.protocol import main as protocol_main
         raise SystemExit(protocol_main())
+    if len(sys.argv) > 1 and sys.argv[1] == "leaderboard":
+        from pulse.leaderboard_cli import main as leaderboard_main
+        raise SystemExit(leaderboard_main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "portability":
+        from pulse.portability_cli import main as portability_main
+        raise SystemExit(portability_main(sys.argv[2:]))
     parser = argparse.ArgumentParser(description="Hermes Pulse — session health monitor")
     parser.add_argument("--file", "-f", help="Session JSONL file")
     parser.add_argument("--session", "-s", help="Session ID from state.db")

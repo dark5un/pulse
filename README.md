@@ -44,6 +44,17 @@ A weekly cron (`pulse-session-gym-weekly`, Mondays 09:00) rescores the corpus
 plus the week's new traces and reports worst session, total cost, and top
 recurring signal.
 
+### Leaderboard
+
+```bash
+uv run pulse leaderboard --corpus corpus            # terminal table
+uv run pulse leaderboard --corpus corpus --json     # machine output
+```
+
+Loads `*.score.json` sidecars (scores `*.py` traces live when a sidecar is
+missing). Ranks top/bottom 3 per task type; session IDs are anonymized
+(sha256, first 12 chars); score ties break toward lower cost.
+
 ## Native integrations
 
 ### Hermes Agent
