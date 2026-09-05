@@ -73,6 +73,9 @@ def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "portability":
         from pulse.portability_cli import main as portability_main
         raise SystemExit(portability_main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "agreement":
+        from pulse.agreement_cli import main as agreement_main
+        raise SystemExit(agreement_main(sys.argv[2:]))
     parser = argparse.ArgumentParser(description="Hermes Pulse — session health monitor")
     parser.add_argument("--file", "-f", help="Session JSONL file")
     parser.add_argument("--session", "-s", help="Session ID from state.db")
