@@ -16,6 +16,34 @@ Pulse is a harness-neutral session quality engine with native integrations for H
 
 The CLI supports `--file`, `--session`, and `--json`. `pulse analyze` is the versioned stdin/stdout JSON protocol used by adapters. `--deep` is reserved and explicitly **not implemented**; Pulse currently performs deterministic analysis only.
 
+### `--unroll` mode
+
+Score an unroll trace file (safe AST load, never executed):
+
+```bash
+uv run pulse --unroll ~/.hermes/traces/unrolled/<session>.py
+uv run pulse --unroll ~/.hermes/traces/unrolled/<session>.py --json
+```
+
+Trace files carry TIMELINE steps but not full message text, so text-based
+detectors degrade in this mode while timing/cost/graph signals are
+authoritative. Three unroll-native detectors run on top of the standard set
+(all thresholds **provisional** until ~100-session calibration):
+
+- `latency_regression` (warning) — any step with `duration_ms > 5000`
+- `cost_anomaly` (warning) — `cost_usd` above task ceiling (brainstorm $0.50, coding $5.00)
+- `skill_deadweight` (warning with correction, else info) — skill in `ACTIVE_SKILLS` with zero `tool_call` steps
+
+### Session gym
+
+```bash
+uv run python scripts/build_corpus.py --out corpus   # keep bottom-10 traces + sidecar JSON
+```
+
+A weekly cron (`pulse-session-gym-weekly`, Mondays 09:00) rescores the corpus
+plus the week's new traces and reports worst session, total cost, and top
+recurring signal.
+
 ## Native integrations
 
 ### Hermes Agent
@@ -66,6 +94,9 @@ Tests use an autouse temporary `HERMES_HOME`; they never write the developer's r
 ## Architecture
 
 - `src/pulse/signals.py` — pure deterministic detectors
+- `src/pulse/signals_unroll.py` — unroll-native detectors (latency, cost, skill deadweight; provisional thresholds)
+- `src/pulse/unroll_loader.py` — safe trace loader (AST only, never executes) + timeline→messages
+- `scripts/build_corpus.py` — session-gym corpus curator (bottom-10 + sidecar JSON)
 - `src/pulse/task_type.py` — precedence-based classification
 - `src/pulse/session_store.py` — shared defensive SQLite loader
 - `src/pulse/weights.py` — validated atomic learned state
