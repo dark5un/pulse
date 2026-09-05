@@ -50,3 +50,28 @@ def test_score_trace_file_on_real_corpus():
     sidecar = json.loads((corpus[0].parent / (corpus[0].stem + ".score.json")).read_text())
     assert rec["score"] == sidecar["score"]
     assert rec["penalty"] == sidecar["penalty"]
+
+
+def test_score_bundle_extra_signals_and_deep_key():
+    from pulse.models import Signal
+    from pulse.unroll_loader import bundle_to_messages
+
+    bundle = _bundle()
+    extra = [
+        Signal(name="goal_completion", target="agent", severity="info",
+               penalty=0, evidence=["patched auth.py"],
+               detail="llm-judge v1", label="Judge: yes — goal_completion")
+    ]
+    rec = score_bundle(bundle, bundle_to_messages(bundle), extra_signals=extra,
+                       deep={"model": "gpt-4o-mini", "signals": ["goal_completion"],
+                             "input_tokens": 100, "output_tokens": 20})
+    assert any(s["name"] == "goal_completion" for s in rec["signals"])
+    assert rec["deep"]["model"] == "gpt-4o-mini"
+    assert rec["deep"]["input_tokens"] == 100
+
+
+def test_score_bundle_no_deep_by_default():
+    from pulse.unroll_loader import bundle_to_messages
+
+    rec = score_bundle(_bundle(), bundle_to_messages(_bundle()))
+    assert "deep" not in rec

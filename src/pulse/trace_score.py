@@ -19,8 +19,19 @@ def anonymize(session_id: str) -> str:
     return hashlib.sha256(session_id.encode()).hexdigest()[:12]
 
 
-def score_bundle(bundle: UnrollBundle, messages: list[dict] | None = None) -> dict:
-    """Score a loaded bundle. Returns sidecar-compatible record dict."""
+def score_bundle(
+    bundle: UnrollBundle,
+    messages: list[dict] | None = None,
+    extra_signals: list | None = None,
+    deep: dict | None = None,
+) -> dict:
+    """Score a loaded bundle. Returns sidecar-compatible record dict.
+
+    ``extra_signals`` (e.g. LLM-judge verdicts) are appended to the signal
+    list and folded into penalty/score. ``deep`` (judge model, signal names,
+    token counts) is stored verbatim — present only when provided, so the
+    deterministic-only path stays byte-identical.
+    """
     msgs = messages if messages is not None else bundle_to_messages(bundle)
     result = extract_signals(msgs)
     task_type = result.metrics.get("task_type", "coding")
@@ -29,10 +40,10 @@ def score_bundle(bundle: UnrollBundle, messages: list[dict] | None = None) -> di
         + detect_cost(bundle, task_type)
         + detect_skill_deadweight(bundle, msgs)
     )
-    all_sigs = list(result.signals) + unroll_sigs
+    all_sigs = list(result.signals) + unroll_sigs + list(extra_signals or [])
     penalty = sum(s.penalty for s in all_sigs)
     score = max(0, min(100, round(100 - penalty)))
-    return {
+    rec: dict = {
         "session_id": bundle.session_id,
         "model": bundle.model,
         "score": score,
@@ -52,6 +63,9 @@ def score_bundle(bundle: UnrollBundle, messages: list[dict] | None = None) -> di
             for s in all_sigs
         ],
     }
+    if deep is not None:
+        rec["deep"] = deep
+    return rec
 
 
 def score_trace_file(path: str | Path) -> dict:
