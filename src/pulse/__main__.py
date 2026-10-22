@@ -149,7 +149,7 @@ def main() -> None:
         result.signals.extend(unroll_signals)
     deep_info: dict | None = None
     if args.deep:
-        from .signals_deep import build_prompt, detect_deep
+        from .signals_deep import build_prompt, default_prompt_budget, detect_deep
 
         backend = OpenAIJudge(model=args.judge_model or JUDGE_MODEL_DEFAULT, base_url=args.judge_base_url)
         endpoint = getattr(backend, "base_url", "") or "https://api.openai.com/v1"
@@ -158,7 +158,9 @@ def main() -> None:
             f"  --deep sends transcript text to {backend.model} at {endpoint} "
             f"(bounded, secrets redacted). Remote judging is opt-in: omit --deep for local-only analysis."
         )
-        _prompt_preview = len(build_prompt(messages))  # bound/redact check runs before any network call
+        _budget = default_prompt_budget()  # ADR 0010: env-derived or stated fallback, never a hidden guess
+        print(f"  judge prompt budget: {_budget.budget_chars} chars (source={_budget.source})")
+        _prompt_preview = len(build_prompt(messages, _budget))  # bound/redact check runs before any network call
         try:
             deep_signals = detect_deep(messages, backend)
         except SystemExit:

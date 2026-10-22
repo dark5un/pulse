@@ -37,8 +37,10 @@ from .leaderboard_cli import load_corpus_records
 from .signals import extract_signals
 from .signals_deep import (
     PROMPT_VERSION,
+    JudgeBudgetError,
     JudgeCallError,
     JudgeRun,
+    resolve_prompt_budget,
     run_judge,
 )
 from .unroll_loader import bundle_to_messages, load_unroll_trace
@@ -102,6 +104,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--cache", default=".pulse_agreement_cache.json")
     ap.add_argument("--judge-model", default="")
     ap.add_argument("--judge-base-url", default="")
+    ap.add_argument(
+        "--judge-context",
+        type=int,
+        default=0,
+        help="explicit judge context window (tokens); overrides the "
+        "PULSE_JUDGE_CONTEXT env and the read-only /v1/models probe (ADR 0010)",
+    )
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
     records = load_corpus_records(args.corpus)[: args.limit]
@@ -111,6 +120,21 @@ def main(argv: list[str] | None = None) -> int:
     except (json.JSONDecodeError, OSError):
         cache = {}
     backend = make_backend(args)
+    # Decision 11 / ADR 0010: model-derived prompt budget, resolved BEFORE
+    # any judge call; if no window is knowable the run refuses to start
+    # (names the knobs) rather than assume one.
+    try:
+        budget = resolve_prompt_budget(
+            backend, args.judge_context or None
+        )
+    except JudgeBudgetError as e:
+        print(f"judge budget failure: {e}", file=sys.stderr)
+        return 2
+    print(
+        f"judge prompt budget: {budget.budget_chars} chars "
+        f"(source={budget.source}, context_window_tokens={budget.context_window_tokens})",
+        file=sys.stderr,
+    )
     pairs: dict[str, tuple[list[int], list[int]]] = {
         "correction_chain": ([], []),
         "premature_stop": ([], []),
@@ -136,7 +160,7 @@ def main(argv: list[str] | None = None) -> int:
             jl = _labels_from_findings(findings)
         else:
             try:
-                run = run_judge(messages, backend)
+                run = run_judge(messages, backend, budget=budget)
             except JudgeCallError as e:
                 # Loud-failure contract (M0): name the failed trace, exit
                 # nonzero; records judged so far are already flushed.

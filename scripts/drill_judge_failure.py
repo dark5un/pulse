@@ -106,6 +106,8 @@ def run_agreement(corpus: Path, cache: Path, base_url: str, limit: int) -> subpr
             str(cache),
             "--judge-base-url",
             base_url,
+            "--judge-context",
+            "16384",
         ],
         capture_output=True,
         text=True,
@@ -136,6 +138,8 @@ def main() -> int:
     fake.stop()
     check("trace #1 judged over localhost", r1.returncode == 1 and fake.requests == 1,
           f"rc={r1.returncode} reqs={fake.requests} err={r1.stderr[-200:]}")
+    check("model-derived budget stated", "judge prompt budget:" in r1.stderr
+          and "source=explicit" in r1.stderr, f"stderr={r1.stderr[-300:]}")
     entries_after_1 = len(json.loads(cache.read_text())) if cache.exists() else 0
     check("cache holds 1 flushed verdict", entries_after_1 == 1, f"entries={entries_after_1}")
 

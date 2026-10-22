@@ -20,6 +20,8 @@ def _stubbed_cli(monkeypatch):
     import pulse.agreement_cli as cli
     from pulse.judge import JudgeResult, StubJudge
 
+    monkeypatch.setenv("PULSE_JUDGE_CONTEXT", "16384")  # batch budget knob (ADR 0010)
+
     calls = {"n": 0}
 
     class CountingJudge(StubJudge):
@@ -78,6 +80,7 @@ def test_judge_call_failure_exits_2_names_trace_keeps_cache(monkeypatch, tmp_pat
                 return JudgeResult(text=EMPTY_VERDICTS)
             raise ConnectionError("endpoint died mid-batch")
 
+    monkeypatch.setenv("PULSE_JUDGE_CONTEXT", "16384")
     flaky = FlakyJudge()
     monkeypatch.setattr(cli, "make_backend", lambda args: flaky)
     d = tmp_path / "c"
@@ -136,6 +139,8 @@ ABSTAIN_VERDICTS = json.dumps(
 def _cli_with_text(monkeypatch, text):
     import pulse.agreement_cli as cli
     from pulse.judge import JudgeResult, StubJudge
+
+    monkeypatch.setenv("PULSE_JUDGE_CONTEXT", "16384")  # batch budget knob (ADR 0010)
 
     monkeypatch.setattr(cli, "make_backend", lambda args: StubJudge([JudgeResult(text=text)]))
     return cli

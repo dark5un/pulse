@@ -6,6 +6,19 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Model-derived judge prompt budget (deep-judge gate M1 / CW-4, ADR 0010 +
+  0013): the batch judge budget = pinned endpoint's context window minus
+  reserved headroom, resolved explicit -> `PULSE_JUDGE_CONTEXT` env ->
+  read-only `/v1/models` probe -> `PULSE_JUDGE_MAX_PROMPT_CHARS`; the gate
+  refuses to start (loud, names the knobs) rather than assume a window.
+  Provider over-long rejections raise `JudgeContextOverflow` — never a
+  silent clip. `pulse agreement` gained `--judge-context`, states the
+  budget + source per run, and reports per-call prompt size, truncation
+  count, and the evidence-grounded rate; manifests record
+  `judge.context_window`. Middle-truncation stays the disclosed fallback.
+
 ### Changed
 
 - Verdict schema v2 (deep-judge gate M1 / CW-4, ADR 0006 + 0012):

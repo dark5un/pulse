@@ -235,16 +235,18 @@ def test_run_judge_exposes_prompt_size_truncation_and_findings():
         {"role": "user", "content": "fix the login bug today please thanks"},
         {"role": "assistant", "content": "patched auth.py with a regression test"},
     ]
-    backend = StubJudge([JudgeResult(text=_v2_payload())])
-    run = run_judge(msgs, backend)
-    from pulse.signals_deep import build_prompt
+    from pulse.signals_deep import MAX_PROMPT_CHARS, PromptBudget, build_prompt
 
-    assert run.prompt_chars == len(build_prompt(msgs)) > 0
+    fixed = PromptBudget(MAX_PROMPT_CHARS, None, "explicit")
+    backend = StubJudge([JudgeResult(text=_v2_payload())])
+    run = run_judge(msgs, backend, budget=fixed)
+    assert run.prompt_chars == len(build_prompt(msgs, fixed)) > 0
     assert run.truncated is False
     assert run.findings == {}
 
     big = [{"role": "user", "content": "x" * 900}] * 40  # over the 12k budget
     backend2 = StubJudge([JudgeResult(text=_v2_payload())])
-    run2 = run_judge(big, backend2)
+    run2 = run_judge(big, backend2, budget=fixed)
     assert run2.truncated is True
-    assert TRUNCATION_MARKER in build_prompt(big)
+    assert run2.budget is fixed
+    assert TRUNCATION_MARKER in build_prompt(big, fixed)

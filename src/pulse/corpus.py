@@ -433,10 +433,14 @@ def select_corpus(
         "model": os.environ.get("PULSE_JUDGE_MODEL", ""),
         "base_url": os.environ.get("PULSE_JUDGE_BASE_URL", ""),
         "model_checkpoint": None,
+        "context_window": None,
         "note": (
             "judge identity placeholder fields per plan M3 — finalized and verified "
             "against the live endpoint at gate run time (S1 makes no judge calls); "
-            "judge-positive floors (>=10 provisional, ML-B1) are re-checked then."
+            "judge-positive floors (>=10 provisional, ML-B1) are re-checked then. "
+            "context_window (tokens) is filled from the endpoint's read-only "
+            "/v1/models probe or PULSE_JUDGE_CONTEXT at run time: it derives the "
+            "judge prompt budget (ADR 0010) and pins the run's window for reruns."
         ),
     }
     manifest: dict[str, Any] = {

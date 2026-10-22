@@ -18,18 +18,33 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
+from dataclasses import dataclass
 
 from .judge import JudgeBackend
 from .models import Signal
 
 PROMPT_VERSION = "v2"
 
-#: Hard bound on judge prompt size (transcript far over budget is cut,
-#: and the cut is disclosed in the prompt).
+#: Legacy fixed prompt bound — from the hosted-judge era. Retained ONLY as
+#: the explicit static fallback when no context window is configured or
+#: probed for the interactive paths (ADR 0010/0013); the gate batch path
+#: derives the budget from the judge model's context window instead.
+#: MAX_MESSAGE_CHARS is the per-message cap — flagged for S3 measurement
+#: as the likely tool-output-evidence limiter (plan decision 11).
 MAX_PROMPT_CHARS = 12_000
-#: Per-message cap inside the prompt.
 MAX_MESSAGE_CHARS = 500
+
+#: Decision 11 / ADR 0013: batch judge budget = pinned endpoint's context
+#: window minus reserved headroom (output + instructions/schema +
+#: estimation slack), converted to chars. Conversions are estimates; the
+#: ACTUAL per-call prompt size + truncated flag is measured at judge time
+#: (JudgeRun) and feeds the G4/CW-7 distribution block — the effective cap
+#: is a measured knob, never a guess baked back in.
+CHARS_PER_TOKEN_ESTIMATE = 4
+JUDGE_RESERVE_TOKENS = 1536
+MIN_PROMPT_BUDGET = 2_000
 
 DEEP_SIGNALS = (
     "goal_completion",
@@ -67,6 +82,94 @@ class JudgeCallError(RuntimeError):
     that never answered is NOT "no verdicts". Unparseable judge OUTPUT is a
     different shape and still yields [] with parse diagnostics.
     """
+
+
+class JudgeBudgetError(RuntimeError):
+    """No judge prompt budget can be determined (ADR 0010/0013): the
+    context window is unknown and no explicit budget is configured. The
+    batch path refuses to run rather than assume a window."""
+
+
+@dataclass(frozen=True)
+class PromptBudget:
+    """Judge prompt budget + its provenance (loud, inspectable)."""
+
+    budget_chars: int
+    context_window_tokens: int | None
+    source: str  # explicit | env | probe | config-fallback | static-fallback
+
+
+def _env_int(name: str) -> int | None:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError as e:
+        raise JudgeBudgetError(f"{name}={raw!r} is not an integer") from e
+
+
+def _reserve_tokens() -> int:
+    reserve = _env_int("PULSE_JUDGE_RESERVE_TOKENS")
+    if reserve is not None and reserve < 0:
+        raise JudgeBudgetError("PULSE_JUDGE_RESERVE_TOKENS must be >= 0")
+    return JUDGE_RESERVE_TOKENS if reserve is None else reserve
+
+
+def budget_from_context(context_tokens: int) -> int:
+    """Model-derived char budget: window minus reserved headroom (ADR 0010)."""
+    reserve = _reserve_tokens()
+    if context_tokens <= reserve:
+        raise JudgeBudgetError(
+            f"context window {context_tokens} <= reserved headroom {reserve} "
+            "(PULSE_JUDGE_RESERVE_TOKENS): nothing left for transcript"
+        )
+    return max(MIN_PROMPT_BUDGET, (context_tokens - reserve) * CHARS_PER_TOKEN_ESTIMATE)
+
+
+def resolve_prompt_budget(
+    backend: JudgeBackend, explicit_context_tokens: int | None = None
+) -> PromptBudget:
+    """Batch-path budget (Decision 11): explicit (manifest/CLI) -> env
+    PULSE_JUDGE_CONTEXT -> read-only probe of the pinned endpoint's
+    /v1/models metadata -> explicit char config PULSE_JUDGE_MAX_PROMPT_CHARS.
+    If none exist: loud JudgeBudgetError naming the knobs — never assume."""
+    explicit = explicit_context_tokens
+    ctx = explicit or _env_int("PULSE_JUDGE_CONTEXT")
+    source = "explicit" if explicit else "env"
+    if not ctx:
+        probe = getattr(backend, "context_window", None)
+        if callable(probe):
+            probed = probe()
+            ctx = probed if isinstance(probed, int) else None
+        source = "probe"
+    if ctx:
+        return PromptBudget(budget_from_context(ctx), ctx, source)
+    fixed = _env_int("PULSE_JUDGE_MAX_PROMPT_CHARS")
+    if fixed:
+        return PromptBudget(max(MIN_PROMPT_BUDGET, fixed), None, "config-fallback")
+    base = getattr(backend, "base_url", "") or "endpoint"
+    raise JudgeBudgetError(
+        "no judge context window available: the read-only probe of "
+        f"{base}/v1/models exposed nothing. Set PULSE_JUDGE_CONTEXT=<tokens> "
+        "(or supply the manifest context_window field) or pin an explicit "
+        "budget via PULSE_JUDGE_MAX_PROMPT_CHARS=<chars>; the batch gate "
+        "never assumes a window (ADR 0010)."
+    )
+
+
+def default_prompt_budget() -> PromptBudget:
+    """Interactive/plugin/corpus paths where no endpoint probe applies:
+    env-derived if configured, else the explicit static fallback
+    (MAX_PROMPT_CHARS) — recorded with its source so the fallback is
+    visible, and flagged for S3 measurement."""
+    ctx = _env_int("PULSE_JUDGE_CONTEXT")
+    if ctx:
+        return PromptBudget(budget_from_context(ctx), ctx, "env")
+    fixed = _env_int("PULSE_JUDGE_MAX_PROMPT_CHARS")
+    if fixed:
+        return PromptBudget(max(MIN_PROMPT_BUDGET, fixed), None, "config-fallback")
+    return PromptBudget(MAX_PROMPT_CHARS, None, "static-fallback")
 
 
 class VerdictParseResult:
@@ -123,7 +226,7 @@ def _prompt_head() -> str:
     )
 
 
-def build_prompt(messages: list[dict]) -> str:
+def _compose_prompt(messages: list[dict], budget_chars: int) -> tuple[str, bool]:
     head = _prompt_head()
     redacted_lines = []
     for m in messages:
@@ -131,9 +234,12 @@ def build_prompt(messages: list[dict]) -> str:
         redacted_lines.append(f"{m.get('role', '?')}: {text}")
     body = "\n".join(redacted_lines)
     # Bound the transcript: cut from the middle (keep opening + recent tail),
-    # and disclose the cut so the judge knows it sees a window.
-    budget = MAX_PROMPT_CHARS - len(head)
-    if len(body) > budget:
+    # and disclose the cut so the judge knows it sees a window. Middle
+    # truncation is the FALLBACK path after the model-derived budget (ADR
+    # 0010); the truncated flag is reported per call, never hidden.
+    budget = budget_chars - len(head)
+    truncated = len(body) > budget
+    if truncated:
         keep_head = budget * 2 // 3
         keep_tail = budget - keep_head - 60
         body = (
@@ -141,7 +247,13 @@ def build_prompt(messages: list[dict]) -> str:
             + "\n[… " + TRUNCATION_MARKER + " …]\n"
             + body[len(body) - keep_tail:]
         )
-    return head + body
+    return head + body, truncated
+
+
+def build_prompt(messages: list[dict], budget: PromptBudget | None = None) -> str:
+    """Judge prompt at the given budget (default: default_prompt_budget())."""
+    chars = budget.budget_chars if budget is not None else default_prompt_budget().budget_chars
+    return _compose_prompt(messages, chars)[0]
 
 
 #: Version of the redaction pattern set below. Stamped into corpus
@@ -333,7 +445,8 @@ def parse_verdict_text(text: str, prompt: str = "") -> VerdictParseResult:
 
 class JudgeRun:
     """One full judge pass with the measurement surface S3 needs:
-    per-call prompt size + truncated flag, grounding counts, findings map."""
+    per-call prompt size + truncated flag, grounding counts, findings map,
+    and the budget (with provenance) the prompt was built under."""
 
     def __init__(
         self,
@@ -344,6 +457,7 @@ class JudgeRun:
         total_quotes: int,
         prompt_chars: int,
         truncated: bool,
+        budget: PromptBudget | None = None,
     ) -> None:
         self.signals = signals
         self.findings = findings
@@ -352,16 +466,27 @@ class JudgeRun:
         self.total_quotes = total_quotes
         self.prompt_chars = prompt_chars
         self.truncated = truncated
+        self.budget = budget
 
 
-def run_judge(messages: list[dict], backend: JudgeBackend) -> JudgeRun:
-    """Judge with prompt-size/grounding exposure (gate batch path).
+def run_judge(
+    messages: list[dict],
+    backend: JudgeBackend,
+    budget: PromptBudget | None = None,
+) -> JudgeRun:
+    """Judge with model-derived budget + prompt-size/grounding exposure
+    (gate batch path, Decision 11 / ADR 0010).
 
-    Same loud contract as detect_deep: a backend call failure raises
-    JudgeCallError; the exact prompt sent is retained so evidence quotes
-    can be grounded against it (ML-A4).
+    Budget resolution is loud: no context window and no explicit config ->
+    JudgeBudgetError before any GPU time is spent. Same call-failure
+    contract as detect_deep: backend failure raises JudgeCallError (a
+    provider over-long rejection surfaces through it too — the prompt was
+    built to the budget, so a rejection means the estimate was wrong:
+    fix the knob, Pulse never silently clips). The exact prompt sent is
+    retained so evidence quotes can be grounded against it (ML-A4).
     """
-    prompt = build_prompt(messages)
+    budget = budget or resolve_prompt_budget(backend)
+    prompt, truncated = _compose_prompt(messages, budget.budget_chars)
     try:
         result = backend.judge(prompt)
     except JudgeCallError:
@@ -369,7 +494,15 @@ def run_judge(messages: list[dict], backend: JudgeBackend) -> JudgeRun:
     except Exception as e:
         ident = getattr(backend, "model", "?")
         base = getattr(backend, "base_url", "") or "default endpoint"
-        raise JudgeCallError(f"judge call failed ({ident} @ {base}): {e}") from e
+        detail = f"judge call failed ({ident} @ {base}): {e}"
+        if "context" in str(e).lower() or "too long" in str(e).lower():
+            detail += (
+                " — provider rejected the prompt as over-long; the derived "
+                "budget estimate (chars/token or reserve) is too generous for "
+                "this endpoint: lower PULSE_JUDGE_CONTEXT or raise "
+                "PULSE_JUDGE_RESERVE_TOKENS (Pulse does not silently clip)"
+            )
+        raise JudgeCallError(detail) from e
     parsed = parse_verdict_text(result.text, prompt=prompt)
     return JudgeRun(
         signals=parsed.signals,
@@ -378,7 +511,8 @@ def run_judge(messages: list[dict], backend: JudgeBackend) -> JudgeRun:
         grounded=parsed.grounded,
         total_quotes=parsed.total_quotes,
         prompt_chars=len(prompt),
-        truncated=TRUNCATION_MARKER in prompt,
+        truncated=truncated,
+        budget=budget,
     )
 
 
@@ -389,11 +523,16 @@ __all__ = [
     "PROMPT_VERSION",
     "REDACT_VERSION",
     "TRUNCATION_MARKER",
+    "JudgeBudgetError",
     "JudgeCallError",
     "JudgeRun",
+    "PromptBudget",
     "VerdictParseResult",
+    "budget_from_context",
     "build_prompt",
+    "default_prompt_budget",
     "detect_deep",
     "parse_verdict_text",
+    "resolve_prompt_budget",
     "run_judge",
 ]

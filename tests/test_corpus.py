@@ -262,6 +262,7 @@ def test_select_meets_floors_and_freezes_hashes(tmp_path):
 
     assert manifest["prompt_version"] == PROMPT_VERSION
     assert manifest["judge"]["model"] == ""  # placeholder: identity finalized at run time
+    assert manifest["judge"]["context_window"] is None  # filled at gate run (ADR 0010)
     counts = manifest["counts"]
     assert counts["core"] == 50 and counts["enriched"] == 50
     assert counts["eligible"] == 160
