@@ -325,6 +325,69 @@ def load_active_snapshots(corpus_dir: Path) -> tuple[list[dict[str, Any]], int]:
     return records, deduped
 
 
+def detector_stats(
+    corpus_dir: str | Path,
+    n_core: int = 50,
+    n_enriched: int = 50,
+    pair_floor: int = 10,
+) -> dict[str, Any]:
+    """REPORT-ONLY selection measurement (CW-9 G2' exit; no manifest written,
+    no bar relaxed).
+
+    Detector-positive counts are RECOMPUTED from each snapshot's message
+    skeleton via ``extract_signals`` (the ML-B7 run-time plane), not read
+    from the advisory sidecar — so the numbers stay correct even when the
+    corpus was exported by an older detector build. task_type comes from
+    the snapshot stamp: the skeleton carries no tool_calls, so
+    ``detect_task_type`` would misclassify on it (ADR 0018). Output is
+    aggregate counts only (ADR 0011): nothing transcript-derived.
+
+    Answers "could a manifest be produced?" without raising: eligibility vs
+    n_core+n_enriched, per-pair pool sizes vs the floor, and the enriched
+    pool (union of pair-positive sessions).
+    """
+    d = Path(corpus_dir)
+    records, deduped = load_active_snapshots(d)
+    positives: dict[str, int] = {p: 0 for p in COMPARABLE_PAIRS}
+    any_positive = 0
+    advisory_stale = 0
+    for rec in records:
+        payload = json.loads((d / rec["path"]).read_text(encoding="utf-8"))
+        stamp_task = str(payload.get("task_type") or "") or None
+        names = {
+            s.name
+            for s in extract_signals(payload.get("messages", []), stamp_task).signals
+        }
+        for p in COMPARABLE_PAIRS:
+            if p in names:
+                positives[p] += 1
+        advisory = {p: bool(rec["det_pairs"].get(p)) for p in COMPARABLE_PAIRS}
+        actual = {p: (p in names) for p in COMPARABLE_PAIRS}
+        if advisory != actual:
+            advisory_stale += 1
+        if any(actual.values()):
+            any_positive += 1
+    eligible = len(records)
+    return {
+        "eligible": eligible,
+        "deduped": deduped,
+        "advisory_stale": advisory_stale,
+        "pair_floor": pair_floor,
+        "det_positive": {
+            p: {"pool": positives[p], "floor_met": positives[p] >= pair_floor}
+            for p in COMPARABLE_PAIRS
+        },
+        "enriched_pool": any_positive,
+        "params": {"n_core": n_core, "n_enriched": n_enriched},
+        "eligibility_met": eligible >= n_core + n_enriched,
+        "manifest_producible": (
+            eligible >= n_core + n_enriched
+            and all(positives[p] >= pair_floor for p in COMPARABLE_PAIRS)
+            and any_positive >= n_enriched
+        ),
+    }
+
+
 def select_corpus(
     corpus_dir: str | Path,
     n_core: int = 50,
@@ -497,6 +560,7 @@ __all__ = [
     "SelectionError",
     "approx_truncated",
     "default_manifest_path",
+    "detector_stats",
     "export_corpus",
     "load_active_snapshots",
     "read_index",

@@ -21,6 +21,7 @@ from .corpus import (
     CorpusError,
     SelectionError,
     default_manifest_path,
+    detector_stats,
     export_corpus,
     read_index,
     select_corpus,
@@ -85,6 +86,33 @@ def _cmd_list(args: argparse.Namespace) -> int:
 
 def _cmd_select(args: argparse.Namespace) -> int:
     corpus_dir = Path(args.corpus)
+    if args.stats:
+        stats = detector_stats(
+            corpus_dir,
+            n_core=args.n_core,
+            n_enriched=args.n_enriched,
+            pair_floor=args.pair_floor,
+        )
+        if args.json:
+            print(json.dumps(stats, indent=2, sort_keys=True))
+        else:
+            print("pulse corpus select --stats (report-only: no manifest written, no bar relaxed)")
+            print(f"eligible={stats['eligible']} deduped={stats['deduped']} "
+                  f"advisory_stale={stats['advisory_stale']} "
+                  f"(det labels RECOMPUTED from snapshot messages at run time, ML-B7)")
+            for pair, per in stats["det_positive"].items():
+                ok = "MEETS" if per["floor_met"] else "BELOW"
+                print(f"  pair {pair}: detector-positive pool={per['pool']} "
+                      f"vs floor {stats['pair_floor']} -> {ok}")
+            print(f"  enriched pool (any pair positive)={stats['enriched_pool']} "
+                  f"vs n_enriched={stats['params']['n_enriched']}")
+            print(f"  eligibility {stats['eligible']} vs n_core+n_enriched="
+                  f"{stats['params']['n_core'] + stats['params']['n_enriched']} -> "
+                  f"{'MEETS' if stats['eligibility_met'] else 'BELOW'}")
+            print(f"manifest producible right now: {'YES' if stats['manifest_producible'] else 'NO'} "
+                  "(floors met is necessary, not sufficient; judge-positive floors are "
+                  "re-checked at agreement time)")
+        return 0
     out = Path(args.out) if args.out else default_manifest_path(corpus_dir)
     manifest = select_corpus(
         corpus_dir,
@@ -133,6 +161,10 @@ def main(argv: list[str] | None = None) -> int:
     sel.add_argument("--n-enriched", type=int, default=50)
     sel.add_argument("--pair-floor", type=int, default=10)
     sel.add_argument("--seed", type=int, default=20261022)
+    sel.add_argument("--stats", action="store_true",
+                     help="report-only: print per-pair detector-positive pools and "
+                          "stratum capacities (recomputed from snapshots); never writes "
+                          "a manifest and never relaxes a bar")
     sel.add_argument("--json", action="store_true")
 
     args = ap.parse_args(argv)

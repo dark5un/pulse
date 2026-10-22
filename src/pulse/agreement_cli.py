@@ -99,8 +99,12 @@ def _flush_cache(cache_path: Path, cache: dict) -> None:
         print(f"warning: could not write cache: {e}")
 
 
-def _det_labels(messages: list[dict]) -> dict[str, int]:
-    names = {s.name for s in extract_signals(messages).signals}
+def _det_labels(messages: list[dict], task_type: str | None = None) -> dict[str, int]:
+    # task_type comes from the snapshot stamp: detect_task_type needs
+    # tool_calls, which corpus snapshots deliberately lack (re-detecting
+    # on the skeleton misclassifies question-heavy coding sessions as
+    # brainstorm and silently gates the pair detectors off — ADR 0018).
+    names = {s.name for s in extract_signals(messages, task_type).signals}
     return {
         "correction_chain": 1 if "correction_chain" in names else 0,
         "premature_stop": 1 if "premature_stop" in names else 0,
@@ -281,7 +285,11 @@ def main(argv: list[str] | None = None) -> int:
         stratum = str(item.get("stratum", "core"))
         # ML-B7: kappa input recomputed at run time, never the advisory
         # sidecar (detector thresholds can drift between export and run).
-        det = extract_signals(messages)
+        # task_type is taken from the snapshot stamp — the skeleton has no
+        # tool_calls, so re-detecting it here would gate detectors wrongly
+        # (ADR 0018).
+        stamp_task = str(payload.get("task_type") or "") or None
+        det = extract_signals(messages, stamp_task)
         if det.skipped_reason:
             ineligible += 1
             print(
@@ -290,7 +298,7 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             continue
-        dl = _det_labels(messages)
+        dl = _det_labels(messages, stamp_task)
         key = hashlib.sha256(raw + PROMPT_VERSION.encode()).hexdigest()[:16]
         truncated_measured: bool | None = None
         if isinstance(cache.get(key), dict):
