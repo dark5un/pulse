@@ -22,3 +22,4 @@ Consequences per Michael Nygard's form.
 | 0014 | `pulse agreement` v2 consumes the run manifest; unroll-trace gate path replaced | Accepted |
 | 0015 | Tri-state gate verdict; per-cell refusal rules and bootstrap CIs | Accepted |
 | 0016 | Judge HTTP request timeout is an explicit operator knob | Accepted |
+| 0017 | Calibration is per-user; project gate runs are developer reference runs | Accepted |
