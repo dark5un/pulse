@@ -6,6 +6,6 @@ src/*.egg-info/
 .pytest_cache/
 .hermes/
 corpus/*
-!corpus/manifests/
-corpus/manifests/*
-!corpus/manifests/*.json
+# ADR 0011: corpora AND manifests (session ids + content hashes) are
+# private by default. Publishing a gate manifest requires explicit user
+# approval and is done with `git add -f`, never by a whitelist rule.

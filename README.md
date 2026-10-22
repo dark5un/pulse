@@ -83,8 +83,9 @@ and its old snapshot is marked `superseded_by` in the `index.json` sidecar
 (hash → session_id, model, task_type, exported_at), inspectable via
 `pulse corpus list`. Sidecar deterministic labels are ADVISORY only — the gate
 recomputes them at run time. Corpus files are never git-tracked (`.gitignore`
-ships `corpus/`); only selection manifests (hashes + metadata, no transcripts)
-are committed.
+ships `corpus/`); selection manifests (hashes + metadata, no transcripts)
+are also kept local by default — publishing one requires explicit owner
+approval (ADR 0011), done with `git add -f`, never by a whitelist rule.
 
 `pulse corpus select` freezes a run's membership: a seeded stratified selection
 manifest — random core (generalization read) + signal-enriched half with a
