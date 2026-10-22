@@ -8,6 +8,12 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `pulse corpus select --stats` (deep-judge gate CW-9 / G2'): report-only
+  floors measurement — per-pair detector-positive pools recomputed from
+  snapshot messages at run time (ML-B7), stratum capacities, and
+  floor/eligibility verdicts, WITHOUT writing a manifest or relaxing any
+  bar. Aggregate counts only, nothing transcript-derived (ADR 0011).
+
 - Model-derived judge prompt budget (deep-judge gate M1 / CW-4, ADR 0010 +
   0013): the batch judge budget = pinned endpoint's context window minus
   reserved headroom, resolved explicit -> `PULSE_JUDGE_CONTEXT` env ->
@@ -20,6 +26,26 @@ versions follow [Semantic Versioning](https://semver.org/).
   `judge.context_window`. Middle-truncation stays the disclosed fallback.
 
 ### Changed
+
+- Structural detector-construct fixes (deep-judge gate CW-9 / G2', ADR
+  0018): `correction_chain` now measures repeated corrections in
+  USER-TURN space (>=2 correction-flagged turns in any 3 consecutive user
+  turns; start-words plus a generic, contribution-extensible marker set)
+  — the old raw-row adjacency was structurally unfireable because
+  harnesses always reply in between. `premature_stop` now requires a
+  completion CLAIM in the last 200 chars of an assistant turn followed by
+  a user CONTINUATION request within 2 user turns — the old exact
+  stop-offer phrases had zero occurrences on real traffic and needed no
+  user pushback. Signal names/targets/severities/penalties unchanged.
+  Snapshot-plane recomputation (`pulse agreement`, detector stats) uses
+  the snapshot's stamped `task_type` instead of re-detecting from the
+  tool_calls-less skeleton (which silently gated pair detectors off on
+  question-heavy coding sessions).
+- Calibration framing (ADR 0017): README now states that thresholds are
+  generic defaults and calibration is PER INSTALL (export -> select ->
+  agreement on one's own sessions); project-published gate numbers are
+  labeled "developer reference run, single operator". The
+  "until ~100-session calibration" framing is retired.
 
 - Verdict schema v2 (deep-judge gate M1 / CW-4, ADR 0006 + 0012):
   `PROMPT_VERSION="v2"`; every verdict carries

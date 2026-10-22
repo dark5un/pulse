@@ -2,10 +2,15 @@
 
 ![Pulse hero](assets/pulse-hero.png)
 
-> Experimental research tooling. Deterministic signals use provisional
-> thresholds (until ~100-session calibration); the LLM judge is
-> provisional until agreement-gated (kappa>=0.6, n>=50). Artifact
-> verification inspects, never executes.
+> Experimental research tooling. Deterministic signals ship generic
+> default thresholds and calibrate **per install**: each Pulse runs its
+> own `pulse corpus export -> select -> agreement` gate on its own
+> sessions, and that bar (kappa>=0.6, n>=50 per stratum) is a per-user
+> contract (ADR 0017). Gate numbers published by the project come from a
+> *developer reference run* (the developer's own machine, single
+> operator) — they validate plumbing, they calibrate nobody else. The
+> LLM judge is provisional until an install's agreement gate passes.
+> Artifact verification inspects, never executes.
 
 Pulse is a harness-neutral session quality engine with native integrations for Hermes Agent and Pi. It analyzes conversations with evidence-based signals attributed to the user, agent, or system, while preserving each harness's native session and state model.
 
@@ -33,7 +38,8 @@ uv run pulse --unroll ~/.hermes/traces/unrolled/<session>.py --json
 Trace files carry TIMELINE steps but not full message text, so text-based
 detectors degrade in this mode while timing/cost/graph signals are
 authoritative. Three unroll-native detectors run on top of the standard set
-(all thresholds **provisional** until ~100-session calibration):
+(all thresholds **generic defaults** — every install calibrates against
+its own corpus, ADR 0017):
 
 - `latency_regression` (warning) — any step with `duration_ms > 5000`
 - `cost_anomaly` (warning) — `cost_usd` above task ceiling (brainstorm $0.50, coding $5.00)
@@ -69,6 +75,7 @@ scoring is local-only; the judge call is the only network egress in Pulse.
 uv run pulse corpus export [--out corpus] [--db PATH] [--limit N] [--json]
 uv run pulse corpus list [--corpus DIR] [--all] [--json]
 uv run pulse corpus select --corpus DIR [--out manifest.json] [--n-core 50 --n-enriched 50 --pair-floor 10 --seed N]
+uv run pulse corpus select --corpus DIR --stats   # report-only: pools/floors, never writes a manifest
 ```
 
 `pulse corpus export` reads the Hermes session DB **read-only** and writes one
@@ -82,7 +89,10 @@ Incremental: unchanged content hash → skipped; a revisited session re-exports
 and its old snapshot is marked `superseded_by` in the `index.json` sidecar
 (hash → session_id, model, task_type, exported_at), inspectable via
 `pulse corpus list`. Sidecar deterministic labels are ADVISORY only — the gate
-recomputes them at run time. Corpus files are never git-tracked (`.gitignore`
+recomputes them at run time from the snapshot messages, using the snapshot's
+stamped `task_type` (skeletons carry no tool_calls, so re-detecting the task
+type there would gate detectors off — ADR 0018). Corpus files are never
+git-tracked (`.gitignore`
 ships `corpus/`); selection manifests (hashes + metadata, no transcripts)
 are also kept local by default — publishing one requires explicit owner
 approval (ADR 0011), done with `git add -f`, never by a whitelist rule.
@@ -95,6 +105,11 @@ item. The manifest records corpus hashes, seed, `redact_version`,
 `PROMPT_VERSION`, and judge model/base_url placeholder fields (judge identity
 is finalized at gate run time; judge-positive floors are re-checked then).
 Unmet floors fail loudly and write NOTHING — bars are never relaxed silently.
+`pulse corpus select --corpus DIR --stats` is the report-only companion: it
+prints per-pair detector-positive pools (recomputed at run time, ML-B7),
+stratum capacities, and floor verdicts WITHOUT writing a manifest or
+relaxing anything — the honest way to answer "could a gate run be
+selected today?" mid-calibration.
 Membership is run-frozen: a re-pin is a new manifest, never an edit.
 
 Agreement gate (required before any hosted-judge claims):
@@ -107,8 +122,12 @@ Judge-vs-deterministic Cohen's kappa on the comparable pairs
 (`correction_quality`↔`correction_chain`, `goal_completion`↔`premature_stop`;
 hallucination/context-retention report judge-rates + need human
 spot-check, never kappa). Verdict cache keyed by trace hash + prompt
-version, makes reruns free. **PASS needs kappa ≥ 0.6 at n ≥ 50** — until
-then every deep signal stays labeled provisional. First real-key run
+version, makes reruns free. **PASS needs kappa ≥ 0.6 at n ≥ 50 per stratum
+on that install's own corpus** — until then that install's deep signals
+stay labeled provisional. Any gate numbers this project publishes from its
+own machine are labeled **developer reference run, single operator**
+(ADR 0017): they validate the plumbing on one machine's traffic and
+calibrate nobody else's defaults. First real-key run
 (2026-09-05, `openai/gpt-4o-mini` via OpenRouter, local 10-trace corpus):
 judge returned zero verdicts on all 10 traces — thin textless TIMELINEs give
 it nothing to grade — so kappa=0.0/agree=1.0 on both pairs, gate FAIL
@@ -357,4 +376,5 @@ MIT
 
 Repository: https://github.com/dark5un/pulse
 
-Every signal is a heuristic and should be treated as provisional.
+Every signal is a heuristic with generic default thresholds; calibration
+is per-user — each install's own corpus gate is its contract (ADR 0017).

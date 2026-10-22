@@ -23,3 +23,4 @@ Consequences per Michael Nygard's form.
 | 0015 | Tri-state gate verdict; per-cell refusal rules and bootstrap CIs | Accepted |
 | 0016 | Judge HTTP request timeout is an explicit operator knob | Accepted |
 | 0017 | Calibration is per-user; project gate runs are developer reference runs | Accepted |
+| 0018 | Structural detector-construct fixes: user-turn adjacency, claim-tail + continuation | Accepted |
