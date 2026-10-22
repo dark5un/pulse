@@ -258,7 +258,9 @@ def test_select_meets_floors_and_freezes_hashes(tmp_path):
     assert manifest["schema"] == cp.MANIFEST_SCHEMA
     assert manifest["seed"] == 7
     assert manifest["redact_version"] == "v1"
-    assert manifest["prompt_version"] == "v1"
+    from pulse.signals_deep import PROMPT_VERSION
+
+    assert manifest["prompt_version"] == PROMPT_VERSION
     assert manifest["judge"]["model"] == ""  # placeholder: identity finalized at run time
     counts = manifest["counts"]
     assert counts["core"] == 50 and counts["enriched"] == 50

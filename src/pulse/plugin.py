@@ -425,8 +425,10 @@ def _handle_deep() -> str:
             "  Deterministic result above still stands.\n"
             "───────────────────────────────────────────────"
         )
-    deep_result = parse_verdict_text(res.text)
+    deep_result = parse_verdict_text(res.text, prompt=prompt)
     deep_signals = deep_result.signals
+    for d in deep_result.diagnostics:
+        print(f"pulse judge diagnostic: {d}")
     for s in deep_signals:
         adjusted = apply_weight(weights, s.name, s.penalty)
         signals_flat.append({
@@ -456,6 +458,13 @@ def _handle_deep() -> str:
         "── Judge ──────────────────────────────────────",
         f"  Model: {getattr(res, 'model', '?')} ({getattr(res, 'provider', '?')})",
         f"  Verdicts: {', '.join(s.name for s in deep_signals) or 'no findings'}",
+    ]
+    if deep_result.total_quotes:
+        judge_lines.append(
+            f"  Evidence grounding: {deep_result.grounded}/{deep_result.total_quotes} "
+            "quotes verbatim in the shown transcript"
+        )
+    judge_lines += [
         f"  Cost: {total} tokens ({in_tok} in / {out_tok} out)"
         + cost_label
         + f", {elapsed:.0f}s — billed to your active model",

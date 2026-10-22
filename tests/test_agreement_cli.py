@@ -11,7 +11,9 @@ TRACE_BODY = (
     ' {"kind": "llm_call", "text": "assistant answer 1 with enough words here"}]\n'
 )
 
-EMPTY_VERDICTS = '{"prompt_version": "v1", "verdicts": []}'
+from pulse.signals_deep import PROMPT_VERSION
+
+EMPTY_VERDICTS = json.dumps({"prompt_version": PROMPT_VERSION, "verdicts": []})
 
 
 def _stubbed_cli(monkeypatch):
@@ -114,3 +116,112 @@ def test_failure_drill_script_green():
     )
     assert r.returncode == 0, r.stdout + "\n" + r.stderr
     assert "DRILL PASS" in r.stdout
+
+
+# ── v2: finding-aware cache VALUE, abstain round-trip, grounding report ──
+
+ABSTAIN_VERDICTS = json.dumps(
+    {
+        "prompt_version": PROMPT_VERSION,
+        "verdicts": [
+            {"signal": "correction_quality", "finding": "unscoreable", "penalty": 0},
+            {"signal": "goal_completion", "finding": "no", "penalty": 0},
+            {"signal": "hallucination", "finding": "no", "penalty": 0},
+            {"signal": "context_retention", "finding": "no", "penalty": 0},
+        ],
+    }
+)
+
+
+def _cli_with_text(monkeypatch, text):
+    import pulse.agreement_cli as cli
+    from pulse.judge import JudgeResult, StubJudge
+
+    monkeypatch.setattr(cli, "make_backend", lambda args: StubJudge([JudgeResult(text=text)]))
+    return cli
+
+
+def test_cache_value_is_finding_aware_and_abstain_survives_reload(monkeypatch, tmp_path, capsys):
+    """G3: v2 cache VALUE = {signal: finding}; an abstain must round-trip
+    through disk reload and stay excluded from its kappa pair."""
+    cli = _cli_with_text(monkeypatch, ABSTAIN_VERDICTS)
+    d = tmp_path / "c"
+    d.mkdir()
+    (d / "t1.py").write_text(TRACE_BODY)
+    cache = tmp_path / "cache.json"
+
+    assert cli.main(["--corpus", str(d), "--limit", "5", "--cache", str(cache)]) == 1
+    entries = json.loads(cache.read_text())
+    assert len(entries) == 1
+    value = next(iter(entries.values()))
+    assert value == {
+        "correction_quality": "unscoreable",
+        "goal_completion": "no",
+        "hallucination": "no",
+        "context_retention": "no",
+    }
+    capsys.readouterr()
+
+    # Reload: fresh run; a backend whose CALL would fail -> the abstain
+    # came from cache and stays an abstain (never "no").
+    class NeverJudge:
+        model = "never"
+        base_url = ""
+
+        def judge(self, prompt):
+            raise AssertionError("cache hit must not reach the backend")
+
+    monkeypatch.setattr(cli, "make_backend", lambda args: NeverJudge())
+    rc = cli.main(["--corpus", str(d), "--limit", "5", "--cache", str(cache), "--json"])
+    assert rc == 1
+    out = json.loads(capsys.readouterr().out)
+    assert out["cache_hits"] == 1
+    assert out["abstained"]["correction_chain"] == 1  # unscoreable excluded
+    assert out["abstained"]["premature_stop"] == 0  # finding=no counted negative
+    assert out["pairs"]["correction_chain"]["n"] == 0
+
+
+def test_absent_verdict_counts_as_abstain_not_no(monkeypatch, tmp_path, capsys):
+    """Omission laundering fix: verdicts [] -> abstain on BOTH pairs."""
+    cli = _cli_with_text(monkeypatch, EMPTY_VERDICTS)
+    d = tmp_path / "c"
+    d.mkdir()
+    (d / "t1.py").write_text(TRACE_BODY)
+    cache = tmp_path / "cache.json"
+    assert cli.main(["--corpus", str(d), "--limit", "5", "--cache", str(cache), "--json"]) == 1
+    out = json.loads(capsys.readouterr().out)
+    assert out["abstained"] == {"correction_chain": 1, "premature_stop": 1}
+    assert out["pairs"]["correction_chain"]["n"] == 0
+    assert out["cache_hits"] == 0  # empty findings still cached
+
+
+def test_grounding_rate_prints_on_fresh_calls(monkeypatch, tmp_path, capsys):
+    cli = _cli_with_text(
+        monkeypatch,
+        json.dumps(
+            {
+                "prompt_version": PROMPT_VERSION,
+                "verdicts": [
+                    {
+                        "signal": "hallucination",
+                        "finding": "yes",
+                        "penalty": 10,
+                        "evidence": ["user question 0 about python code"],
+                    },
+                    {
+                        "signal": "goal_completion",
+                        "finding": "yes",
+                        "penalty": 10,
+                        "evidence": ["a totally fabricated quote not in the transcript"],
+                    },
+                ],
+            }
+        ),
+    )
+    d = tmp_path / "c"
+    d.mkdir()
+    (d / "t1.py").write_text(TRACE_BODY)
+    assert cli.main(["--corpus", str(d), "--limit", "5", "--cache", str(tmp_path / "cache.json")]) == 1
+    out = capsys.readouterr().out
+    assert "evidence grounding: 1/2 quotes grounded (50.0%)" in out
+    assert "prompt size (fresh calls):" in out and "max=" in out

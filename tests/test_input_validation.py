@@ -101,7 +101,9 @@ def _parse(text):
 
 
 def _payload(*verdicts):
-    return json.dumps({"prompt_version": "v1", "verdicts": list(verdicts)})
+    from pulse.signals_deep import PROMPT_VERSION
+
+    return json.dumps({"prompt_version": PROMPT_VERSION, "verdicts": list(verdicts)})
 
 
 def test_parser_drops_garbage_finding():
@@ -134,7 +136,7 @@ def test_parser_drops_penalty_without_evidence():
 
 
 def test_parser_drops_non_finite_penalty():
-    from pulse.signals_deep import parse_verdict_text
+    from pulse.signals_deep import PROMPT_VERSION, parse_verdict_text
 
     for bad in ("NaN", "Infinity", "-Infinity"):
         result = parse_verdict_text(
@@ -143,7 +145,7 @@ def test_parser_drops_non_finite_penalty():
         assert result.signals == [], f"penalty {bad} carried a signal"
     # NaN must not survive max/min into a score-bearing signal either.
     result = parse_verdict_text(
-        '{"prompt_version": "v1", "verdicts": [{"signal": "hallucination", "finding": "yes", "penalty": NaN, "evidence": "x"}]}'
+        '{"prompt_version": "' + PROMPT_VERSION + '", "verdicts": [{"signal": "hallucination", "finding": "yes", "penalty": NaN, "evidence": "x"}]}'
     )
     assert result.signals == []
 

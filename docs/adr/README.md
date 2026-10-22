@@ -17,3 +17,4 @@ Consequences per Michael Nygard's form.
 | 0009 | Per-pair per-stratum kappa; min-over-cells gate; CI honesty | Accepted |
 | 0010 | Model-derived judge prompt budget replaces the fixed 12k cap | Accepted |
 | 0011 | Conversation data is private by default; aggregates only in public | Accepted |
+| 0012 | Pair polarity: judge finding=yes <-> detector-present; absent = abstain | Accepted |

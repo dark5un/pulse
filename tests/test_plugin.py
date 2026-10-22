@@ -15,6 +15,7 @@ sys.path.insert(0, str(pulse_src))
 from pulse import plugin as plugin_module
 from pulse.models import Signal, SignalResult
 from pulse.signals import extract_signals
+from pulse.signals_deep import PROMPT_VERSION
 
 plugin = plugin_module
 
@@ -157,7 +158,7 @@ class _FakeUsage:
 
 
 class _FakeLlmResult:
-    text = _json.dumps({"prompt_version": "v1", "verdicts": [
+    text = _json.dumps({"prompt_version": PROMPT_VERSION, "verdicts": [
         {"signal": "goal_completion", "finding": "yes", "penalty": 0,
          "evidence": "task done"},
     ]})

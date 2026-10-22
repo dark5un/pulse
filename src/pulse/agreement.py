@@ -1,9 +1,15 @@
 """Judge-vs-deterministic agreement (B2): numbers before hosted-judge claims.
 
-Comparable pairs: correction_quality(finding=no, i.e. judge says the
-correction was vague) <-> deterministic correction_chain present; judge
-goal_completion(finding=no, problem found) <-> deterministic premature_stop
-present. Non-overlapping signals (hallucination, context_retention) report
+Comparable pairs (polarity pinned by ADR 0012 + per-pair truth-table
+tests): the verdict prompt defines finding="yes" as "the PROBLEM was
+found". A deterministic correction_chain row is an instance of the
+correction-quality problem (repeated corrections), so the pair is judge
+correction_quality(finding=yes) <-> correction_chain present; likewise
+judge goal_completion(finding=yes — goal-completion problem found) <->
+deterministic premature_stop present. finding=no is judge-negative
+(label 0); unscoreable or an ABSENT verdict abstains (label None) and is
+excluded from that pair's kappa only, never counted as "no".
+Non-overlapping signals (hallucination, context_retention) report
 judge positive-rate + require human spot-check, never kappa.
 
 Gate: no "Pulse scores, but ML" claims until kappa >= 0.6 at n >= 50 on a

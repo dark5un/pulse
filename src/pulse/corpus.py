@@ -38,7 +38,13 @@ from . import session_store
 from .paths import state_db
 from .session_store import SchemaIncompatibleError
 from .signals import extract_signals
-from .signals_deep import PROMPT_VERSION, REDACT_VERSION, build_prompt, redact_text
+from .signals_deep import (
+    PROMPT_VERSION,
+    REDACT_VERSION,
+    TRUNCATION_MARKER,
+    build_prompt,
+    redact_text,
+)
 
 SNAPSHOT_SCHEMA = "pulse-corpus-snapshot/v1"
 INDEX_SCHEMA = "pulse-corpus-index/v1"
@@ -47,10 +53,6 @@ MANIFEST_SCHEMA = "pulse-corpus-manifest/v1"
 #: The comparable kappa pairs (agreement_cli semantics): selection floors
 #: are enforced per pair across the selected corpus.
 COMPARABLE_PAIRS = ("correction_chain", "premature_stop")
-
-#: build_prompt's disclosed cut marker; its presence means the judge would
-#: see a truncated window for this transcript (ML-A3 stamp).
-_TRUNCATION_MARKER = "transcript truncated: middle omitted"
 
 
 class CorpusError(RuntimeError):
@@ -98,8 +100,10 @@ class ExportSummary:
 
 def approx_truncated(messages: list[dict]) -> bool:
     """True when build_prompt() would disclose a middle cut for this
-    transcript — the same 12k budget the judge sees, not a guess."""
-    return _TRUNCATION_MARKER in build_prompt(messages)
+    transcript. ADVISORY at the default (fallback) budget: the actual
+    per-call truncation is model-derived and recorded at judge time
+    (ADR 0010) — this stamp only pre-screens at export."""
+    return TRUNCATION_MARKER in build_prompt(messages)
 
 
 def snapshot_payload(session: dict[str, Any], messages: list[dict]) -> dict[str, Any] | None:

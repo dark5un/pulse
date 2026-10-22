@@ -15,6 +15,7 @@ TRACE_BODY = (
 def test_deep_json_includes_judge_section(monkeypatch, tmp_path, capsys):
     import pulse.__main__ as cli
     from pulse.judge import JudgeResult, StubJudge
+    from pulse.signals_deep import PROMPT_VERSION as _PV
 
     trace = tmp_path / "t.py"
     trace.write_text(TRACE_BODY)
@@ -22,7 +23,7 @@ def test_deep_json_includes_judge_section(monkeypatch, tmp_path, capsys):
         cli,
         "OpenAIJudge",
         lambda **kw: StubJudge(
-            [JudgeResult(text='{"prompt_version": "v1", "verdicts": []})')]
+            [JudgeResult(text=json.dumps({"prompt_version": _PV, "verdicts": []}))]
         ),
     )
     monkeypatch.setattr(

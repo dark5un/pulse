@@ -1,19 +1,29 @@
-"""LLM-judge detectors (B2): goal_completion, context_retention,
-correction_quality, hallucination. One combined temperature-0 call;
-verdicts map to normal Signals (penalty ceiling 25, evidence quotes).
+"""LLM-judge detectors (B2 + verdict schema v2): goal_completion,
+context_retention, correction_quality, hallucination. One combined
+temperature-0 call; verdicts map to normal Signals (penalty ceiling 25,
+evidence quotes).
+
+Schema v2 (ADR 0006 + 0012): every declared signal gets a verdict with
+``finding: yes | no | unscoreable`` — "yes" means the PROBLEM was found.
+``unscoreable`` is the explicit abstain (thin/truncated window); an
+ABSENT verdict abstains too and is never counted as "no" (omission was
+laundering forced-choice bias). Evidence for penalty>0 must be a verbatim
+transcript quote; quotes are substring-grounded against the prompt body
+(ML-A4) and ungrounded ones become parse diagnostics, never silent trust.
 Unparseable output -> [] with diagnostics (never fabricate). Judge CALL
 failure -> JudgeCallError, loud in every path (M0 contract).
-PROMPT_VERSION pinned."""
+PROMPT_VERSION pinned; verdict caches key on it and store the finding."""
 
 from __future__ import annotations
 
 import json
 import math
+import re
 
 from .judge import JudgeBackend
 from .models import Signal
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 
 #: Hard bound on judge prompt size (transcript far over budget is cut,
 #: and the cut is disclosed in the prompt).
@@ -28,14 +38,18 @@ DEEP_SIGNALS = (
     "hallucination",
 )
 
-#: Verdict findings the judge may return. Anything else is dropped.
-FINDINGS = ("yes", "no")
+#: Verdict findings the judge may return (ADR 0006). Anything else is dropped.
+FINDINGS = ("yes", "no", "unscoreable")
 
 #: Absolute penalty ceiling per verdict.
 MAX_VERDICT_PENALTY = 25.0
 #: Max evidence strings accepted per verdict; each capped at this length.
 MAX_EVIDENCE_ITEMS = 4
 MAX_EVIDENCE_CHARS = 200
+
+#: build_prompt's disclosed cut marker; its presence means the judge sees a
+#: truncated window (shared with the corpus approx_truncated stamp).
+TRUNCATION_MARKER = "transcript truncated: middle omitted"
 
 # correction_quality describes the USER's correction specificity -> user target; rest agent.
 TARGETS = {
@@ -46,33 +60,75 @@ TARGETS = {
 }
 
 
-class VerdictParseResult:
-    """parse_verdict_text outcome: accepted signals + per-verdict diagnostics."""
+class JudgeCallError(RuntimeError):
+    """Judge/backend CALL failure (network, API, auth, refused connection).
 
-    def __init__(self, signals: list[Signal], diagnostics: list[str]) -> None:
+    M0 loud-failure contract: this must surface to batch callers — a judge
+    that never answered is NOT "no verdicts". Unparseable judge OUTPUT is a
+    different shape and still yields [] with parse diagnostics.
+    """
+
+
+class VerdictParseResult:
+    """parse_verdict_text outcome: accepted signals + per-verdict diagnostics.
+
+    ``findings`` maps every accepted signal to its v2 finding
+    (yes|no|unscoreable) — the finding-aware payload batch callers cache.
+    ``grounded``/``total_quotes`` count verbatim-evidence grounding (ML-A4)
+    over accepted penalty>0 verdicts when the prompt was supplied.
+    """
+
+    def __init__(
+        self,
+        signals: list[Signal],
+        diagnostics: list[str],
+        findings: dict[str, str] | None = None,
+        grounded: int = 0,
+        total_quotes: int = 0,
+    ) -> None:
         self.signals = signals
         self.diagnostics = diagnostics
+        self.findings = findings or {}
+        self.grounded = grounded
+        self.total_quotes = total_quotes
 
     def __iter__(self):  # unpack as (signals, diagnostics)
         yield self.signals
         yield self.diagnostics
 
 
+def _prompt_head() -> str:
+    schema = (
+        '{"prompt_version": "'
+        + PROMPT_VERSION
+        + '", "verdicts": [{"signal": "<one of '
+        + "|".join(DEEP_SIGNALS)
+        + '>", "finding": "yes|no|unscoreable", "penalty": <0-25>, '
+        + '"evidence": "<verbatim quote copied from the TRANSCRIPT>"}]}'
+    )
+    return (
+        "You are Pulse, a session-quality judge. Return exactly one verdict for "
+        "EACH of the four signals — never omit a signal. 'yes' means the PROBLEM "
+        "was found (penalty 1-25 requires a verbatim evidence quote copied from "
+        "the transcript); 'no' means you checked and the problem was NOT found "
+        "(penalty 0); 'unscoreable' means you cannot decide from the window shown. "
+        "Abstain with 'unscoreable' exactly when the transcript is thin (too few "
+        "turns to judge that signal at all) or truncated (the bracketed "
+        "truncation notice says the middle of the transcript was omitted, "
+        "and the signal's evidence could plausibly sit in that omitted middle) — "
+        "never abstain on a signal you can actually check, "
+        "and never guess yes/no where you should abstain. Evidence must be copied "
+        f"verbatim from the transcript. Reply with exactly this JSON shape: "
+        f"{schema}\n\nTRANSCRIPT:\n"
+    )
+
+
 def build_prompt(messages: list[dict]) -> str:
+    head = _prompt_head()
     redacted_lines = []
     for m in messages:
         text = redact_text(str(m.get("content", ""))[:MAX_MESSAGE_CHARS])
         redacted_lines.append(f"{m.get('role', '?')}: {text}")
-    schema = (
-        '{"prompt_version": "v1", "verdicts": [{"signal": "<one of '
-        + "|".join(DEEP_SIGNALS)
-        + '>", "finding": "yes|no", "penalty": <0-25>, "evidence": "<quote>"}]}'
-    )
-    head = (
-        "You are Pulse, a session-quality judge. Verdicts ONLY on the four signals; "
-        "'yes' means the PROBLEM was found (penalty > 0 needs evidence quote). "
-        f"Reply with exactly this JSON shape: {schema}\n\nTRANSCRIPT:\n"
-    )
     body = "\n".join(redacted_lines)
     # Bound the transcript: cut from the middle (keep opening + recent tail),
     # and disclose the cut so the judge knows it sees a window.
@@ -82,7 +138,7 @@ def build_prompt(messages: list[dict]) -> str:
         keep_tail = budget - keep_head - 60
         body = (
             body[:keep_head]
-            + "\n[…transcript truncated: middle omitted…]\n"
+            + "\n[… " + TRUNCATION_MARKER + " …]\n"
             + body[len(body) - keep_tail:]
         )
     return head + body
@@ -96,8 +152,6 @@ REDACT_VERSION = "v1"
 
 def redact_text(text: str) -> str:
     """Redact secrets from judge-bound text (keys, tokens, emails)."""
-    import re
-
     patterns = [
         r"sk-(?:proj-)?[A-Za-z0-9_-]{8,}",
         r"\bgh[pousr]_[A-Za-z0-9]{8,}\b",
@@ -109,15 +163,6 @@ def redact_text(text: str) -> str:
     for pat in patterns:
         out = re.sub(pat, "[REDACTED]", out)
     return out
-
-
-class JudgeCallError(RuntimeError):
-    """Judge/backend CALL failure (network, API, auth, refused connection).
-
-    M0 loud-failure contract: this must surface to batch callers — a judge
-    that never answered is NOT "no verdicts". Unparseable judge OUTPUT is a
-    different shape and still yields [] with parse diagnostics.
-    """
 
 
 def detect_deep(messages: list[dict], backend: JudgeBackend) -> list[Signal]:
@@ -158,13 +203,49 @@ def _validate_evidence(raw: object) -> list[str] | None:
     return clean
 
 
-def parse_verdict_text(text: str) -> VerdictParseResult:
+_GROUND_ELLIPSIS = re.compile(r"(?:\.{3}|…|\u22ef)+")
+_GROUND_BRACKETS = re.compile(r"\[[^\]]*\]")
+_GROUND_WS = re.compile(r"\s+")
+#: Fragments shorter than this carry no discriminating signal (substring
+#: checks on crumbs left by truncation edges are noise, not evidence).
+_GROUND_MIN_FRAGMENT = 4
+
+
+def _is_grounded(quote: str, prompt: str) -> bool:
+    """Substring-match an evidence quote against the prompt body (ML-A4).
+
+    Normalizes for what judges legitimately do to quotes: bracketed
+    insertions (incl. [REDACTED]) and ellipses split the quote into
+    fragments — every usable fragment must be found in the prompt. A quote
+    truncated at the 500-char message cap or MAX_EVIDENCE_CHARS is still a
+    contiguous substring, so plain prefix truncation grounds naturally.
+    A quote with no usable fragment is too vague to falsify and counts as
+    grounded (empty-evidence rules are policed elsewhere).
+    """
+    parts = _GROUND_BRACKETS.sub(" ⋯ ", quote)
+    parts = _GROUND_ELLIPSIS.sub(" ⋯ ", parts)
+    fragments = [_GROUND_WS.sub(" ", p).strip().lower() for p in parts.split(" ⋯ ")]
+    fragments = [f for f in fragments if len(f) >= _GROUND_MIN_FRAGMENT]
+    if not fragments:
+        return True
+    hay = _GROUND_WS.sub(" ", prompt).lower()
+    return all(f in hay for f in fragments)
+
+
+def parse_verdict_text(text: str, prompt: str = "") -> VerdictParseResult:
     """Parse a judge JSON payload into signals + diagnostics.
 
     Invalid verdicts (bad finding, non-finite penalty, penalty without
     evidence, bad evidence shape) are dropped with a diagnostic — they can
     never carry a penalty into scoring. Duplicate signal names merge
     deterministically (highest penalty wins).
+
+    v2 rules: ``unscoreable`` is an accepted abstain — penalty forced to 0,
+    evidence optional. When a ``prompt`` is supplied, evidence for
+    penalty>0 verdicts is substring-grounded against it; an ungrounded
+    quote does NOT drop the signal (the finding may still be real) but
+    emits a parse diagnostic and lowers the reported grounded-quote rate —
+    fabricated evidence becomes visible data, never silent trust (ML-A4).
     """
     signals: list[Signal] = []
     diagnostics: list[str] = []
@@ -197,6 +278,11 @@ def parse_verdict_text(text: str) -> VerdictParseResult:
             diagnostics.append(f"{where} {name}: penalty {penalty!r} not finite — dropped")
             continue
         penalty = max(0.0, min(MAX_VERDICT_PENALTY, penalty))
+        if finding == "unscoreable" and penalty != 0:
+            diagnostics.append(
+                f"{where} {name}: finding=unscoreable with penalty {penalty} — abstain forced to 0"
+            )
+            penalty = 0.0
         if finding == "no" and penalty != 0:
             diagnostics.append(f"{where} {name}: finding=no with penalty {penalty} — dropped")
             continue
@@ -213,8 +299,21 @@ def parse_verdict_text(text: str) -> VerdictParseResult:
                 merged[name] = {"penalty": penalty, "evidence": evidence, "finding": finding}
         else:
             merged[name] = {"penalty": penalty, "evidence": evidence, "finding": finding}
+    grounded = total_quotes = 0
     for name, m in merged.items():
         penalty = m["penalty"]
+        if prompt and penalty > 0:
+            for quote in m["evidence"]:
+                if not quote.strip():
+                    continue
+                total_quotes += 1
+                if _is_grounded(quote, prompt):
+                    grounded += 1
+                else:
+                    diagnostics.append(
+                        f"{name}: evidence quote not grounded in the prompt body "
+                        f"(verbatim quote required): {quote[:60]!r}"
+                    )
         signals.append(
             Signal(
                 name=name,
@@ -228,7 +327,59 @@ def parse_verdict_text(text: str) -> VerdictParseResult:
                 label=f"Judge: {m['finding']} — {name}",
             )
         )
-    return VerdictParseResult(signals, diagnostics)
+    findings = {name: m["finding"] for name, m in merged.items()}
+    return VerdictParseResult(signals, diagnostics, findings, grounded, total_quotes)
+
+
+class JudgeRun:
+    """One full judge pass with the measurement surface S3 needs:
+    per-call prompt size + truncated flag, grounding counts, findings map."""
+
+    def __init__(
+        self,
+        signals: list[Signal],
+        findings: dict[str, str],
+        diagnostics: list[str],
+        grounded: int,
+        total_quotes: int,
+        prompt_chars: int,
+        truncated: bool,
+    ) -> None:
+        self.signals = signals
+        self.findings = findings
+        self.diagnostics = diagnostics
+        self.grounded = grounded
+        self.total_quotes = total_quotes
+        self.prompt_chars = prompt_chars
+        self.truncated = truncated
+
+
+def run_judge(messages: list[dict], backend: JudgeBackend) -> JudgeRun:
+    """Judge with prompt-size/grounding exposure (gate batch path).
+
+    Same loud contract as detect_deep: a backend call failure raises
+    JudgeCallError; the exact prompt sent is retained so evidence quotes
+    can be grounded against it (ML-A4).
+    """
+    prompt = build_prompt(messages)
+    try:
+        result = backend.judge(prompt)
+    except JudgeCallError:
+        raise
+    except Exception as e:
+        ident = getattr(backend, "model", "?")
+        base = getattr(backend, "base_url", "") or "default endpoint"
+        raise JudgeCallError(f"judge call failed ({ident} @ {base}): {e}") from e
+    parsed = parse_verdict_text(result.text, prompt=prompt)
+    return JudgeRun(
+        signals=parsed.signals,
+        findings=parsed.findings,
+        diagnostics=parsed.diagnostics,
+        grounded=parsed.grounded,
+        total_quotes=parsed.total_quotes,
+        prompt_chars=len(prompt),
+        truncated=TRUNCATION_MARKER in prompt,
+    )
 
 
 __all__ = [
@@ -237,9 +388,12 @@ __all__ = [
     "MAX_PROMPT_CHARS",
     "PROMPT_VERSION",
     "REDACT_VERSION",
+    "TRUNCATION_MARKER",
     "JudgeCallError",
+    "JudgeRun",
     "VerdictParseResult",
     "build_prompt",
     "detect_deep",
     "parse_verdict_text",
+    "run_judge",
 ]

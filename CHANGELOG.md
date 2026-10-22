@@ -6,6 +6,23 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Verdict schema v2 (deep-judge gate M1 / CW-4, ADR 0006 + 0012):
+  `PROMPT_VERSION="v2"`; every verdict carries
+  `finding: yes | no | unscoreable`; the prompt fully specifies when
+  abstaining is correct (thin/truncated window) and forbids omitting a
+  declared signal. An `unscoreable` or ABSENT verdict abstains — excluded
+  from its own kappa pair, never counted as "no". The verdict-cache value
+  is now the finding map `{signal: finding}` (version-keyed, v1 entries
+  age out). [ML-A1] pair polarity pinned with per-pair truth-table tests:
+  judge finding=yes <-> detector present. [ML-A4] evidence quotes are
+  substring-grounded against the prompt body (normalized for redaction
+  markers/ellipsis/truncation); ungrounded penalty>0 quotes emit parse
+  diagnostics and a reported grounded-quote rate in both the batch CLI
+  and `/pulse deep`; `run_judge` exposes per-call prompt size +
+  truncated flag for measurement.
+
 ### Fixed
 
 - Loud judge failure (deep-judge gate M0 / CW-3): `detect_deep` no longer

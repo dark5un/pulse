@@ -16,6 +16,8 @@ import json
 import sqlite3
 import time
 
+from pulse.signals_deep import PROMPT_VERSION
+
 
 def _seed_hermes_session(monkeypatch, sid, n_turns=3):
     import sqlite3
@@ -52,7 +54,7 @@ class _FakeUsage:
 
 
 class _FakeLlmResult:
-    text = json.dumps({"prompt_version": "v1", "verdicts": [
+    text = json.dumps({"prompt_version": PROMPT_VERSION, "verdicts": [
         {"signal": "goal_completion", "finding": "yes", "penalty": 0, "evidence": "task done"},
     ]})
     provider = "openrouter"
