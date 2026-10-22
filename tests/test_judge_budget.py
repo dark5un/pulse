@@ -251,17 +251,7 @@ def test_run_judge_wraps_overflow_loudly(monkeypatch):
         ep2.stop()
 
 
-# ── CLI integration: budget refusal + explicit knob ──────────────────────
-
-
-TRACE_BODY = (
-    'SESSION_ID = "s1"\nMODEL = "m"\nCOST = {"cost_usd": 0.01}\n'
-    'TIMELINE = [{"kind": "user_message", "text": "user question 0 about python code"},\n'
-    ' {"kind": "user_message", "text": "user question 1 about python code"},\n'
-    ' {"kind": "user_message", "text": "user question 2 about python code"},\n'
-    ' {"kind": "llm_call", "text": "assistant answer 0 with enough words here"},\n'
-    ' {"kind": "llm_call", "text": "assistant answer 1 with enough words here"}]\n'
-)
+# ── CLI integration: budget refusal + explicit knob (manifest plane, CW-5a) ──
 
 
 def _stub_backend():
@@ -278,14 +268,21 @@ def _pv():
     return PROMPT_VERSION
 
 
+def _v2_corpus(tmp_path):
+    from conftest import make_conversation, write_manifest, write_snapshot
+
+    d = tmp_path / "c"
+    d.mkdir()
+    item = write_snapshot(d, session_id="s1", messages=make_conversation())
+    return d, write_manifest(d, [item])
+
+
 def test_agreement_cli_refuses_without_budget(monkeypatch, tmp_path, capsys, no_budget_env):
     import pulse.agreement_cli as cli
 
     monkeypatch.setattr(cli, "make_backend", lambda args: _stub_backend())
-    d = tmp_path / "c"
-    d.mkdir()
-    (d / "t1.py").write_text(TRACE_BODY)
-    rc = cli.main(["--corpus", str(d), "--limit", "5", "--cache", str(tmp_path / "cache.json")])
+    _d, man = _v2_corpus(tmp_path)
+    rc = cli.main(["--manifest", str(man), "--cache", str(tmp_path / "cache.json")])
     assert rc == 2
     err = capsys.readouterr().err
     assert "judge budget failure" in err and "PULSE_JUDGE_CONTEXT" in err
@@ -295,12 +292,35 @@ def test_agreement_cli_explicit_context_source(monkeypatch, tmp_path, capsys, no
     import pulse.agreement_cli as cli
 
     monkeypatch.setattr(cli, "make_backend", lambda args: _stub_backend())
-    d = tmp_path / "c"
-    d.mkdir()
-    (d / "t1.py").write_text(TRACE_BODY)
+    _d, man = _v2_corpus(tmp_path)
     rc = cli.main(
-        ["--corpus", str(d), "--limit", "5", "--cache", str(tmp_path / "cache.json"),
+        ["--manifest", str(man), "--cache", str(tmp_path / "cache.json"),
          "--judge-context", "16384"]
     )
-    assert rc == 1  # gate FAIL (small n), budget fine
+    # budget fine; tiny-n cells refuse kappa -> gate NOT EVALUATED (exit 2,
+    # never a bare FAIL — ADR 0009)
+    assert rc == 2
     assert "judge prompt budget: 59392 chars (source=explicit" in capsys.readouterr().err
+
+
+def test_agreement_cli_uses_manifest_context_window(monkeypatch, tmp_path, capsys, no_budget_env):
+    """Manifest judge.context_window acts as the explicit pin (ADR 0013):
+    no CLI flag, no env — the run derives from the manifest instead."""
+    import pulse.agreement_cli as cli
+
+    monkeypatch.setattr(cli, "make_backend", lambda args: _stub_backend())
+    _d, man = _v2_corpus(tmp_path)
+    man.write_text(
+        json.dumps(
+            {**json.loads(man.read_text()), "judge": {
+                "lane": "api", "model": "stub", "base_url": "",
+                "model_checkpoint": None, "context_window": 8192}},
+            indent=2, sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    rc = cli.main(["--manifest", str(man), "--cache", str(tmp_path / "cache.json")])
+    assert rc == 2  # gate not evaluated (tiny n) — budget itself resolved
+    err = capsys.readouterr().err
+    assert "judge prompt budget: 26624 chars (source=explicit" in err
