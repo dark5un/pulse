@@ -88,3 +88,37 @@ def test_penalty_clamped_to_25():
     )
     assert sigs[0].penalty == 25
     assert sigs[0].severity == "critical"
+
+
+def test_judge_call_failure_raises_loudly():
+    """M0 contract: a backend CALL failure must surface, never read as []."""
+    from pulse.judge import JudgeBackend, JudgeResult
+    from pulse.signals_deep import JudgeCallError, detect_deep
+
+    class BrokenJudge(JudgeBackend):
+        model = "broken"
+        base_url = "http://127.0.0.1:1"
+
+        def judge(self, prompt: str) -> JudgeResult:
+            raise ConnectionError("connection refused")
+
+    try:
+        detect_deep([{"role": "user", "content": "hi there friend"}], BrokenJudge())
+        raise AssertionError("expected JudgeCallError")
+    except JudgeCallError as e:
+        assert "connection refused" in str(e)
+        assert "broken" in str(e)
+
+
+def test_unparseable_output_still_empty_with_diagnostics():
+    """Keep semantics: bad OUTPUT is not a call failure — [] + diagnostics."""
+    from pulse.judge import JudgeResult, StubJudge
+    from pulse.signals_deep import detect_deep, parse_verdict_text
+
+    sigs = detect_deep(
+        [{"role": "user", "content": "hi there friend, how are you today?"}],
+        StubJudge([JudgeResult(text="```not json```")]),
+    )
+    assert sigs == []
+    res = parse_verdict_text("```not json```")
+    assert res.signals == [] and res.diagnostics

@@ -8,6 +8,20 @@ versions follow [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Loud judge failure (deep-judge gate M0 / CW-3): `detect_deep` no longer
+  swallows judge/network exceptions — batch callers get an explicit
+  `JudgeCallError`; `pulse agreement` exits 2 naming the failed trace
+  (gate FAIL stays 1), and the verdict cache flushes per record, so a dead
+  endpoint at snapshot #40/50 costs one session, not 40, and a rerun
+  resumes from cache. Unparseable judge OUTPUT keeps its old semantics
+  ([] + parse diagnostics). Scripted failure drill:
+  `scripts/drill_judge_failure.py` (localhost fake judge + closed port only).
+- Hermetic CI baseline: leaderboard/portability/build_corpus/trace_score
+  tests seed their own tmp fixtures instead of reading the untracked local
+  `corpus/` (14 pre-existing CI failures); `-m pulse` subprocesses get
+  `PYTHONPATH=src` (uv non-package mode); loader-integration fixture no
+  longer races `src/pulse/__init__.py` over the plugin entry copy.
+
 - Install contract + version floor (PU-11, PU-12): `requires-python`
   lowered to `>=3.11` (Hermes runs 3.11.15; both packages compile clean
   under 3.11 — the old `>=3.12` floor would refuse a wheel install).

@@ -4,6 +4,11 @@ Runs the judge over up to --limit traces (on-disk verdict cache keyed by
 trace sha256 + prompt version, so reruns are free), builds comparable-pair
 label lists, prints kappa + agreement + gate verdict (PASS only at
 kappa >= 0.6, n >= 50).
+
+Failure contract (M0): a judge/backend CALL failure is loud — the run exits
+2 naming the failed trace; gate FAIL remains 1. The verdict cache is
+flushed per record, so a rerun after a loud failure resumes from cache
+(one dead endpoint at snapshot #40/50 costs 1 session, not 40).
 """
 
 from __future__ import annotations
@@ -11,13 +16,14 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 from .agreement import agreement_rate, cohen_kappa, gate
 from .judge import JUDGE_MODEL_DEFAULT, OpenAIJudge
 from .leaderboard_cli import load_corpus_records
 from .signals import extract_signals
-from .signals_deep import PROMPT_VERSION, detect_deep
+from .signals_deep import PROMPT_VERSION, JudgeCallError, detect_deep
 from .unroll_loader import bundle_to_messages, load_unroll_trace
 
 
@@ -25,6 +31,13 @@ def make_backend(args):
     return OpenAIJudge(
         model=args.judge_model or JUDGE_MODEL_DEFAULT, base_url=args.judge_base_url
     )
+
+
+def _flush_cache(cache_path: Path, cache: dict) -> None:
+    try:
+        cache_path.write_text(json.dumps(cache, indent=2))
+    except OSError as e:
+        print(f"warning: could not write cache: {e}")
 
 
 def _det_labels(messages: list[dict]) -> dict[str, int]:
@@ -92,7 +105,17 @@ def main(argv: list[str] | None = None) -> int:
                 ),
             }
         else:
-            jl = _judge_labels(messages, backend)
+            try:
+                jl = _judge_labels(messages, backend)
+            except JudgeCallError as e:
+                # Loud-failure contract (M0): name the failed trace, exit
+                # nonzero; records judged so far are already flushed.
+                print(f"judge call failure on trace {path}: {e}", file=sys.stderr)
+                print(
+                    f"verdict cache intact after {n} record(s); a rerun resumes from cache",
+                    file=sys.stderr,
+                )
+                return 2
             cache[key] = [
                 s
                 for s in (
@@ -103,6 +126,9 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 if s
             ]
+            # Flush per record: an endpoint death at #40/50 must cost one
+            # session, not the whole batch (UX finding, M0).
+            _flush_cache(cache_path, cache)
         dl = _det_labels(messages)
         for sig in pairs:
             pairs[sig][0].append(jl[sig])
@@ -110,10 +136,7 @@ def main(argv: list[str] | None = None) -> int:
         hall_pos += jl["_hallucination_rate"]
         ctx_pos += jl["_context_retention_rate"]
         n += 1
-    try:
-        cache_path.write_text(json.dumps(cache, indent=2))
-    except OSError as e:
-        print(f"warning: could not write cache: {e}")
+    _flush_cache(cache_path, cache)
     result: dict = {"n": n, "cache_hits": cache_hits, "pairs": {}}
     kappas = []
     for sig, (jl_list, dl_list) in pairs.items():

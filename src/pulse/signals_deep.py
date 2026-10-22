@@ -1,7 +1,9 @@
 """LLM-judge detectors (B2): goal_completion, context_retention,
 correction_quality, hallucination. One combined temperature-0 call;
 verdicts map to normal Signals (penalty ceiling 25, evidence quotes).
-Unparseable output -> [] (never fabricate). PROMPT_VERSION pinned."""
+Unparseable output -> [] with diagnostics (never fabricate). Judge CALL
+failure -> JudgeCallError, loud in every path (M0 contract).
+PROMPT_VERSION pinned."""
 
 from __future__ import annotations
 
@@ -109,12 +111,31 @@ def redact_text(text: str) -> str:
     return out
 
 
+class JudgeCallError(RuntimeError):
+    """Judge/backend CALL failure (network, API, auth, refused connection).
+
+    M0 loud-failure contract: this must surface to batch callers — a judge
+    that never answered is NOT "no verdicts". Unparseable judge OUTPUT is a
+    different shape and still yields [] with parse diagnostics.
+    """
+
+
 def detect_deep(messages: list[dict], backend: JudgeBackend) -> list[Signal]:
+    """Judge one transcript; return verdict signals.
+
+    Raises JudgeCallError when the backend call itself fails (loud in every
+    path, matching the /pulse deep contract: silent [] laundered outages
+    into "clean" transcripts in September's gate run).
+    """
     try:
-        text = backend.judge(build_prompt(messages)).text
-    except Exception:  # noqa: BLE001 — judge/network failure reads as no verdicts
-        return []
-    return parse_verdict_text(text).signals
+        result = backend.judge(build_prompt(messages))
+    except JudgeCallError:
+        raise
+    except Exception as e:
+        ident = getattr(backend, "model", "?")
+        base = getattr(backend, "base_url", "") or "default endpoint"
+        raise JudgeCallError(f"judge call failed ({ident} @ {base}): {e}") from e
+    return parse_verdict_text(result.text).signals
 
 
 def _validate_evidence(raw: object) -> list[str] | None:
@@ -212,8 +233,11 @@ def parse_verdict_text(text: str) -> VerdictParseResult:
 
 __all__ = [
     "DEEP_SIGNALS",
+    "FINDINGS",
+    "MAX_PROMPT_CHARS",
     "PROMPT_VERSION",
     "REDACT_VERSION",
+    "JudgeCallError",
     "VerdictParseResult",
     "build_prompt",
     "detect_deep",
