@@ -5,4 +5,7 @@ __pycache__/
 src/*.egg-info/
 .pytest_cache/
 .hermes/
-corpus/
+corpus/*
+!corpus/manifests/
+corpus/manifests/*
+!corpus/manifests/*.json

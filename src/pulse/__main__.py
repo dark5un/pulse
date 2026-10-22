@@ -82,6 +82,9 @@ def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "agreement":
         from .agreement_cli import main as agreement_main
         raise SystemExit(agreement_main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "corpus":
+        from .corpus_cli import main as corpus_main
+        raise SystemExit(corpus_main(sys.argv[2:]))
     parser = argparse.ArgumentParser(description="Hermes Pulse — session health monitor")
     parser.add_argument("--file", "-f", help="Session JSONL file")
     parser.add_argument("--session", "-s", help="Session ID from state.db")

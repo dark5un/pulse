@@ -11,6 +11,7 @@
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -94,3 +95,20 @@ def test_no_syspath_hack_in_plugin():
     text = (repo / "src" / "pulse" / "plugin.py").read_text()
     assert "sys.path.insert" not in text
     assert "from .paths import" in text or "from . import" in text
+
+
+def test_install_module_list_covers_plugin_and_corpus_modules():
+    """Deep-judge gate CW-1 (risk 6): install.sh's module list must cover
+    everything plugin.py imports (relative `from .X import`) plus the new
+    corpus-layer modules — corpus/corpus_cli were the easy miss. Pure CLI
+    satellites (leaderboard_cli etc.) are intentionally not plugin-loaded."""
+    repo = Path(__file__).parents[1]
+    script = (repo / "install.sh").read_text()
+    marker = "for module in "
+    start = script.index(marker) + len(marker)
+    listed = set(script[start:script.index("; do", start)].split())
+    assert {"corpus", "corpus_cli"} <= listed, "corpus modules missing from install.sh"
+    plugin_src = (repo / "src" / "pulse" / "plugin.py").read_text()
+    imported = set(re.findall(r"^from \.([a-z_0-9]+) import", plugin_src, flags=re.MULTILINE))
+    missing = imported - listed
+    assert not missing, f"install.sh module list missing plugin imports: {sorted(missing)}"

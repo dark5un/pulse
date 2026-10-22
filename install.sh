@@ -28,7 +28,7 @@ cp "$INSTALL_DIR/src/pulse/plugin.yaml" "$PLUGIN_DIR/plugin.yaml"
 # Entry point: plugin.py (with relative imports) becomes the package init.
 cp "$INSTALL_DIR/src/pulse/plugin.py" "$PLUGIN_DIR/__init__.py"
 # Sibling modules beside it, so `from .paths import ...` resolves.
-for module in paths scoring session_store signals models constants task_type weights signals_unroll signals_deep judge trace_score unroll_loader artifact protocol leaderboard agreement compare costs export experiment flake incident portability redteam replay skills; do
+for module in paths scoring session_store signals models constants task_type weights signals_unroll signals_deep judge trace_score unroll_loader artifact protocol leaderboard agreement compare costs export experiment flake incident portability redteam replay skills corpus corpus_cli; do
   cp "$INSTALL_DIR/src/pulse/${module}.py" "$PLUGIN_DIR/${module}.py"
 done
 if command -v hermes >/dev/null 2>&1; then hermes plugins enable pulse; fi

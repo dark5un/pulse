@@ -86,6 +86,12 @@ def build_prompt(messages: list[dict]) -> str:
     return head + body
 
 
+#: Version of the redaction pattern set below. Stamped into corpus
+#: snapshots and run manifests so a redaction-vintage change is visible
+#: (deep-judge gate plan M2/decision 7). Bump when patterns change.
+REDACT_VERSION = "v1"
+
+
 def redact_text(text: str) -> str:
     """Redact secrets from judge-bound text (keys, tokens, emails)."""
     import re
@@ -204,4 +210,12 @@ def parse_verdict_text(text: str) -> VerdictParseResult:
     return VerdictParseResult(signals, diagnostics)
 
 
-__all__ = ["DEEP_SIGNALS", "PROMPT_VERSION", "VerdictParseResult", "build_prompt", "detect_deep", "parse_verdict_text"]
+__all__ = [
+    "DEEP_SIGNALS",
+    "PROMPT_VERSION",
+    "REDACT_VERSION",
+    "VerdictParseResult",
+    "build_prompt",
+    "detect_deep",
+    "parse_verdict_text",
+]

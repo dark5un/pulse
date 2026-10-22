@@ -63,6 +63,39 @@ disclosed marker), per-message 500 chars, and secrets (API keys, bearer
 tokens, emails, hex secrets) are redacted before construction. Deterministic
 scoring is local-only; the judge call is the only network egress in Pulse.
 
+### Corpus snapshots (deep-judge gate, M2/M3)
+
+```bash
+uv run pulse corpus export [--out corpus] [--db PATH] [--limit N] [--json]
+uv run pulse corpus list [--corpus DIR] [--all] [--json]
+uv run pulse corpus select --corpus DIR [--out manifest.json] [--n-core 50 --n-enriched 50 --pair-floor 10 --seed N]
+```
+
+`pulse corpus export` reads the Hermes session DB **read-only** and writes one
+hashed JSON snapshot per eligible session (filename = `sha256(content)[:16]`).
+Message text is redacted at write time with the same `redact_text()` as the
+prompt boundary; each snapshot stamps `redact_version` and `approx_truncated`
+(the transcript exceeds `build_prompt`'s 12k budget). Sessions under
+`extract_signals`' too-short floor are skipped with the SAME predicate and the
+skip counts are printed, so the corpus can never inject all-negative rows.
+Incremental: unchanged content hash → skipped; a revisited session re-exports
+and its old snapshot is marked `superseded_by` in the `index.json` sidecar
+(hash → session_id, model, task_type, exported_at), inspectable via
+`pulse corpus list`. Sidecar deterministic labels are ADVISORY only — the gate
+recomputes them at run time. Corpus files are never git-tracked (`.gitignore`
+ships `corpus/`); only selection manifests (hashes + metadata, no transcripts)
+are committed.
+
+`pulse corpus select` freezes a run's membership: a seeded stratified selection
+manifest — random core (generalization read) + signal-enriched half with a
+>=10 detector-positive floor per comparable pair (guards the base-rate
+collapse), deduped by session id (newest snapshot wins), stratum stamped per
+item. The manifest records corpus hashes, seed, `redact_version`,
+`PROMPT_VERSION`, and judge model/base_url placeholder fields (judge identity
+is finalized at gate run time; judge-positive floors are re-checked then).
+Unmet floors fail loudly and write NOTHING — bars are never relaxed silently.
+Membership is run-frozen: a re-pin is a new manifest, never an edit.
+
 Agreement gate (required before any hosted-judge claims):
 
 ```bash
@@ -301,6 +334,7 @@ Tests use an autouse temporary `HERMES_HOME`; they never write the developer's r
 - `src/pulse/signals_unroll.py` — unroll-native detectors (latency, cost, skill deadweight; provisional thresholds)
 - `src/pulse/judge.py` + `signals_deep.py` — `--deep` LLM-judge backend (stdlib urllib, stub for tests) + 4 verdict detectors
 - `src/pulse/agreement.py` + `agreement_cli.py` — `pulse agreement` (kappa gate, verdict cache)
+- `src/pulse/corpus.py` + `corpus_cli.py` — `pulse corpus export/list/select` (redacted hashed snapshots + frozen run manifests; deep-judge gate M2/M3)
 - `src/pulse/unroll_loader.py` — safe trace loader (AST only, never executes) + timeline→messages
 - `scripts/build_corpus.py` — session-gym corpus curator (bottom-10 + sidecar JSON)
 - `src/pulse/replay.py` + `replay_cli.py` — `pulse replay` (corpus fan-out runner)

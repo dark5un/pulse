@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from .paths import state_db
+from .paths import hermes_home, state_db
 
 
 class SchemaIncompatibleError(ValueError):
@@ -70,3 +70,51 @@ def load_session(session_id: str | None = None, db_path: Path | None = None) -> 
 
 def load_messages(session_id: str | None = None, db_path: Path | None = None) -> list[dict]:
     return load_session(session_id, db_path)[0]
+
+
+def list_sessions(db_path: Path | None = None) -> list[dict[str, Any]]:
+    """Enumerate all sessions (id, model, started_at, ended_at), read-only.
+
+    Loud by contract (deep-judge gate M0): a missing, locked, or
+    schema-incompatible DB raises SchemaIncompatibleError naming the
+    resolved path and HERMES_HOME — never a silent empty list. Used by
+    `pulse corpus export`; the connection is opened SQLite read-only
+    (mode=ro) so enumeration can never mutate host state.
+    """
+    db = db_path or state_db()
+    if not db.exists():
+        raise SchemaIncompatibleError(
+            f"no Hermes session database at {db} (HERMES_HOME={hermes_home()})"
+        )
+    try:
+        conn = sqlite3.connect(f"file:{db.as_posix()}?mode=ro", uri=True)
+    except sqlite3.OperationalError as e:
+        raise SchemaIncompatibleError(
+            f"cannot open session database read-only (locked?): {db}: {e}"
+        ) from e
+    try:
+        with conn:
+            conn.row_factory = sqlite3.Row
+            tables = {
+                r[0]
+                for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            }
+            missing = {"sessions", "messages"} - tables
+            if missing:
+                raise SchemaIncompatibleError(
+                    f"not a Hermes session database (missing tables: {sorted(missing)}): {db}"
+                )
+            rows = conn.execute(
+                "SELECT id, model, started_at, ended_at FROM sessions ORDER BY started_at, id"
+            ).fetchall()
+    except sqlite3.OperationalError as e:
+        raise SchemaIncompatibleError(f"unreadable session database {db}: {e}") from e
+    return [
+        {
+            "id": r["id"],
+            "model": r["model"] or "unknown",
+            "started_at": r["started_at"],
+            "ended_at": r["ended_at"],
+        }
+        for r in rows
+    ]
