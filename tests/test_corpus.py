@@ -375,7 +375,7 @@ def test_cli_export_list_select_roundtrip(tmp_path, capsys):
     assert (tmp_path / "m.json").exists()
 
 
-def test_gitignore_posture_snapshots_ignored_manifests_tracked():
+def test_gitignore_posture_snapshots_and_manifests_ignored():
     import subprocess
 
     repo = Path(__file__).parents[1]
@@ -384,11 +384,14 @@ def test_gitignore_posture_snapshots_ignored_manifests_tracked():
         check=False,
     )
     assert ignored.returncode == 0, "snapshot files must be git-ignored"
+    # ADR 0011: manifests (session ids + content hashes) are transcript-derived
+    # metadata -> private by default too. Publishing one is an explicit,
+    # user-approved `git add -f`, never a whitelist rule.
     tracked = subprocess.run(
         ["git", "-C", str(repo), "check-ignore", "corpus/manifests/manifest-x.json"],
         capture_output=True, text=True, check=False,
     )
-    assert tracked.returncode != 0, "selection manifests must be committable"
+    assert tracked.returncode == 0, "selection manifests must be git-ignored by default"
 
 
 def test_cli_loud_fail_missing_db(tmp_path, capsys):
