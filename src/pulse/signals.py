@@ -19,11 +19,26 @@ from .constants import (
 from .models import RuntimeLog, Signal, SignalResult
 from .task_type import detect_task_type
 
-# ── Keyword sets (litmus-tested against known transcripts) ─────────────────
+# ── Keyword sets (generic English defaults — ADR 0018) ──────────────────────
+# These lexicons are role+content computable (no tool_calls — corpus
+# snapshots carry none; ML-B7 recompute plane) and are NOT fitted to any
+# single user's corpus (ADR 0017: calibration is per-user; shipped defaults
+# stay generic). Contribution-extensible: adding standard correction /
+# completion / continuation phrasing is welcome; adding phrases chosen by
+# grep-golfing one operator's transcripts is not.
 
 CORRECTION_STARTS: set[str] = {
     "no", "wrong", "that's not", "i meant", "not that",
     "revert", "undo", "that's not right",
+}
+
+# Generic correction/rephrase markers matched ANYWHERE in a user turn
+# (the CW-8 study's marker family; start-of-turn flagging alone matched
+# only 34 user turns DB-wide in the study corpus and starved the pool).
+CORRECTION_MARKERS: set[str] = {
+    "i meant", "not that", "that's not", "wrong", "instead",
+    "redo", "do over", "start over", "you didn't", "didn't work",
+    "revert", "undo",
 }
 
 FRUSTRATION_KW: set[str] = {
@@ -38,15 +53,65 @@ REASONING_LOOP_KW: set[str] = {
     "no wait",
 }
 
-PREMISE_STOP_KW: set[str] = {
+# Premature-stop construct (ADR 0018): a completion CLAIM at the end of an
+# assistant turn that the user then overrides with a CONTINUATION request.
+# The old PREMISE_STOP_KW exact phrases had zero literal occurrences on
+# real traffic ("good stopping point" is not how models offer to stop) —
+# replaced by these generic claim/continuation families. A handful of the
+# old phrases survive as legacy tail-claim entries.
+COMPLETION_CLAIMS: set[str] = {
+    "done", "finished", "all set", "complete", "completed",
+    "that's all", "hope this helps", "let me know if",
+    # legacy PREMISE_STOP_KW overlap (closing-statement phrasing):
     "should i continue", "want me to keep going",
     "good stopping point", "natural checkpoint",
-    "continue in a new session", "known limitation",
+}
+
+CONTINUE_REQUESTS: set[str] = {
+    "continue", "go on", "keep going", "carry on", "resume", "go ahead",
+    "still", "what about", "finish the", "you didn't finish",
+    "not finished", "what's left", "where we left",
 }
 
 GOAL_DRIFT_KW: set[str] = {
     "scrap that", "let me start over",
 }
+
+# ── Detector window constants (ADR 0018) ────────────────────────────────────
+
+# correction_chain adjacency lives in USER-TURN space: harnesses always
+# reply between user turns, so raw-row adjacency was structurally
+# unfireable. >= CORRECTION_MIN_IN_WINDOW flagged turns inside any
+# CORRECTION_USER_WINDOW consecutive user turns form a chain.
+CORRECTION_USER_WINDOW = 3
+CORRECTION_MIN_IN_WINDOW = 2
+
+# premature_stop: claims count only in the last CLAIM_TAIL_CHARS chars of
+# an assistant turn (a real closing statement, not mid-prose); the
+# continuation must land within the next CONTINUE_WINDOW_TURNS user turns.
+CLAIM_TAIL_CHARS = 200
+CONTINUE_WINDOW_TURNS = 2
+
+
+def _phrase_res(patterns: set[str]) -> list[re.Pattern[str]]:
+    """Compile each phrase with word boundaries at its letter edges, so
+    'done' never matches 'abandoned' and 'still' never matches 'stilts'."""
+    return [re.compile(r"\b" + re.escape(p) + r"\b") for p in sorted(patterns)]
+
+
+_CORRECTION_MARKER_RES = _phrase_res(CORRECTION_MARKERS)
+_COMPLETION_CLAIM_RES = _phrase_res(COMPLETION_CLAIMS)
+_CONTINUE_REQUEST_RES = _phrase_res(CONTINUE_REQUESTS)
+
+
+def _is_correction_turn(text: str) -> bool:
+    """True when a user turn starts with a correction word or contains a
+    generic correction marker (user-turn flagging, ADR 0018)."""
+    stripped = text.lower().strip()
+    return (
+        any(stripped.startswith(w) for w in CORRECTION_STARTS)
+        or any(rx.search(stripped) for rx in _CORRECTION_MARKER_RES)
+    )
 
 
 # ── Minimum session guard ──────────────────────────────────────────────────
@@ -67,38 +132,44 @@ def _check_minimum_messages(messages: list[dict]) -> str | None:
 # ── Correction chain ──────────────────────────────────────────────────────
 
 def _detect_correction_chain(messages: list[dict], task_type: str) -> list[Signal]:
-    """Detect 3+ consecutive user turns starting with a correction word.
+    """Detect repeated user corrections in quick succession (ADR 0018).
 
-    Litmus: 3x "no, that's wrong" in a row → fires.
+    Adjacency lives in USER-TURN space: >= CORRECTION_MIN_IN_WINDOW
+    correction-flagged user turns (start-word OR generic marker) inside
+    any CORRECTION_USER_WINDOW consecutive user turns form a chain.
+    The old raw-row-adjacency form (3 user messages with no other row
+    between) was structurally unfireable: harnesses always reply in
+    between, so user runs of length >= 3 essentially never occur.
+
+    Litmus: "no, that's wrong" ... "that's not what I meant" within 3
+            user turns → fires.
             Single "no, do X instead" → does not fire.
-            "no" mid-sentence → does not fire.
+            "no" mid-sentence (no marker) → does not fire.
             Brainstorm session → does not fire.
     """
     if task_type == TASK_BRAINSTORM:
         return []
 
-    signals: list[Signal] = []
-    chain_len = 0
-    chain_turns: list[int] = []
+    # User turns in order, with their content validated as text.
+    user_rows = [
+        idx for idx, msg in enumerate(messages)
+        if msg.get("role") == "user" and isinstance(msg.get("content", ""), str)
+    ]
+    flagged = [
+        k for k, idx in enumerate(user_rows)
+        if _is_correction_turn(messages[idx]["content"])
+    ]
 
-    for idx, msg in enumerate(messages):
-        if msg.get("role") != "user":
-            continue
-        content = msg.get("content", "")
-        if not isinstance(content, str):
-            continue
-        stripped = content.lower().strip()
-        is_correction = any(
-            stripped.startswith(w) for w in CORRECTION_STARTS
-        )
-        if is_correction:
-            chain_len += 1
-            chain_turns.append(idx)
-        else:
-            if chain_len >= 3:
+    # Cluster flagged turns: consecutive flags within window reach
+    # (turn-index gap <= CORRECTION_USER_WINDOW - 1) belong to one chain.
+    signals: list[Signal] = []
+    cluster: list[int] = []
+    for k in flagged + [None]:  # None sentinel flushes the final cluster
+        if cluster and (k is None or k - cluster[-1] > CORRECTION_USER_WINDOW - 1):
+            if len(cluster) >= CORRECTION_MIN_IN_WINDOW:
                 evidence = [
-                    messages[t].get("content", "")
-                    for t in chain_turns[-3:]
+                    messages[user_rows[t]]["content"]
+                    for t in cluster[-3:]
                 ]
                 signals.append(Signal(
                     name="correction_chain",
@@ -106,25 +177,14 @@ def _detect_correction_chain(messages: list[dict], task_type: str) -> list[Signa
                     severity="warning",
                     penalty=12,
                     evidence=evidence,
-                    label=f"{chain_len} consecutive correction turns",
+                    label=(
+                        f"{len(cluster)} correction-flagged turns within "
+                        f"{CORRECTION_USER_WINDOW}-user-turn windows"
+                    ),
                 ))
-            chain_len = 0
-            chain_turns = []
-
-    # Check if chain ended at last turn
-    if chain_len >= 3:
-        evidence = [
-            messages[t].get("content", "")
-            for t in chain_turns[-3:]
-        ]
-        signals.append(Signal(
-            name="correction_chain",
-            target="user",
-            severity="warning",
-            penalty=12,
-            evidence=evidence,
-            label=f"{chain_len} consecutive correction turns",
-        ))
+            cluster = []
+        if k is not None:
+            cluster.append(k)
 
     return signals
 
@@ -315,7 +375,18 @@ def _detect_reasoning_loops(messages: list[dict], task_type: str) -> list[Signal
 # ── Premature stopping ───────────────────────────────────────────────────
 
 def _detect_premature_stop(messages: list[dict], task_type: str) -> list[Signal]:
-    """Detect agent asking to stop mid-task.
+    """Detect an agent claiming completion mid-task that the user then
+    overrides (ADR 0018).
+
+    Construct: a completion claim inside the LAST CLAIM_TAIL_CHARS chars
+    of an assistant turn ("done", "all set", ... — a closing statement,
+    not mid-prose), followed by a continuation request inside the next
+    CONTINUE_WINDOW_TURNS user turns. The user pushing the agent to keep
+    going after its claim is the observable premature stop.
+
+    Role+content only (computable from corpus snapshots — ML-B7 plane).
+    The old PREMISE_STOP_KW exact-phrase scan had zero occurrences on
+    real traffic and needed no user follow-up at all.
 
     Does not fire on brainstorm or research sessions,
     where reflective language is natural.
@@ -325,23 +396,48 @@ def _detect_premature_stop(messages: list[dict], task_type: str) -> list[Signal]
 
     signals: list[Signal] = []
 
-    for msg in messages:
+    for idx, msg in enumerate(messages):
         if msg.get("role") != "assistant":
             continue
         content = msg.get("content", "")
-        if not isinstance(content, str):
+        if not isinstance(content, str) or not content:
             continue
-        lower = content.lower()
-        hits = sum(1 for kw in PREMISE_STOP_KW if kw in lower)
-        if hits > 0:
-            signals.append(Signal(
-                name="premature_stop",
-                target="agent",
-                severity="warning",
-                penalty=10,
-                evidence=[content[:200]],
-                label="Agent asking to stop mid-task",
-            ))
+        tail = content.lower()[-CLAIM_TAIL_CHARS:]
+        if not any(rx.search(tail) for rx in _COMPLETION_CLAIM_RES):
+            continue
+        # Find a continuation request in the next CONTINUE_WINDOW_TURNS
+        # user turns after this assistant row.
+        continuation_idx: int | None = None
+        user_turns_seen = 0
+        for j in range(idx + 1, len(messages)):
+            nxt = messages[j]
+            if nxt.get("role") != "user":
+                continue
+            user_turns_seen += 1
+            if user_turns_seen > CONTINUE_WINDOW_TURNS:
+                break
+            nxt_content = nxt.get("content", "")
+            if isinstance(nxt_content, str) and any(
+                rx.search(nxt_content.lower()) for rx in _CONTINUE_REQUEST_RES
+            ):
+                continuation_idx = j
+                break
+        if continuation_idx is None:
+            continue
+        signals.append(Signal(
+            name="premature_stop",
+            target="agent",
+            severity="warning",
+            penalty=10,
+            evidence=[
+                content[-CLAIM_TAIL_CHARS:],
+                str(messages[continuation_idx].get("content", ""))[:CLAIM_TAIL_CHARS],
+            ],
+            label=(
+                f"Completion claim, then user requested continuation "
+                f"within {CONTINUE_WINDOW_TURNS} user turns"
+            ),
+        ))
 
     return signals
 

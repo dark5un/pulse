@@ -86,20 +86,24 @@ def make_conversation(
         else:
             content = f"fix the python api bug in module {i} and add a regression test for it"
         msgs.append({"role": "user", "content": content})
-        if stop_offer and i == turns - 1:
-            msgs.append(
-                {
-                    "role": "assistant",
-                    "content": "we reached a good stopping point here, want me to keep going",
-                }
-            )
-        else:
-            msgs.append(
-                {
-                    "role": "assistant",
-                    "content": f"answer {i}: patched the python api module and ran the test suite",
-                }
-            )
+        msgs.append(
+            {
+                "role": "assistant",
+                "content": f"answer {i}: patched the python api module and ran the test suite",
+            }
+        )
+    if stop_offer:
+        # ADR 0018 construct: completion claim in the turn TAIL, then a
+        # user continuation request inside the next 2 user turns.
+        msgs.append(
+            {
+                "role": "assistant",
+                "content": f"the api fix for module {turns - 1} is done, all set",
+            }
+        )
+        msgs.append(
+            {"role": "user", "content": f"go on and run the integration suite for module {turns}"}
+        )
     return msgs
 
 

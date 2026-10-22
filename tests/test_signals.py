@@ -131,6 +131,107 @@ def test_correction_trigger_words_start_of_turn_only():
     assert len(corrections) == 0
 
 
+# ── ADR 0018: user-turn-space adjacency truth table ───────────────────────
+
+def _alternating(u: list[str]) -> list[dict]:
+    """user/assistant alternation from a list of user texts."""
+    msgs: list[dict] = []
+    for text in u:
+        msgs.append({"role": "user", "content": text})
+        msgs.append({"role": "assistant", "content": "ok, continuing the work"})
+    return msgs
+
+
+def test_correction_chain_fires_across_agent_replies():
+    """THE structurally-fireable shape: flagged turns separated by normal
+    assistant rows. The old raw-adjacency detector could never see this."""
+    msgs = _alternating([
+        "build the parser feature",
+        "no, that's not the file I meant",
+        "still broken?",
+        "you didn't update the config, redo it",
+    ])
+    result = extract_signals(msgs, "coding")
+    names = [s.name for s in result.signals]
+    assert "correction_chain" in names, "2 flagged turns in a 3-user-turn window must fire"
+
+
+def test_correction_chain_window_edge_gap_two_fires():
+    """Flagged turns 2 apart in turn space (distance-3 window) -> fires."""
+    msgs = _alternating([
+        "wrong, start from the schema again",
+        "and add the index while you are in there",
+        "that's not what I asked for",
+    ])
+    result = extract_signals(msgs, "coding")
+    assert "correction_chain" in [s.name for s in result.signals]
+
+
+def test_correction_chain_window_edge_gap_three_not_fired():
+    """Flagged turns 3 apart (outside every 3-turn window) -> no fire."""
+    msgs = _alternating([
+        "wrong, start from the schema again",
+        "and add the index while you are in there",
+        "also update the readme",
+        "that's not what I asked for",
+    ])
+    result = extract_signals(msgs, "coding")
+    assert "correction_chain" not in [s.name for s in result.signals]
+
+
+def test_correction_chain_contains_markers_flag_mid_turn():
+    """Generic marker anywhere in the turn (not just start-of-turn)."""
+    msgs = _alternating([
+        "please use the whoosh library instead",
+        "the loader is broken, please undo that patch",
+        "now add pagination to the results page",
+    ])
+    result = extract_signals(msgs, "coding")
+    assert "correction_chain" in [s.name for s in result.signals]
+
+
+def test_correction_chain_word_boundary_no_false_flag():
+    """'wrongly' must not match the 'wrong' marker; no other flags -> no fire."""
+    msgs = _alternating([
+        "the test wrongly asserts equality, fix it please",
+        "thanks, now add pagination",
+        "and sort the results by date",
+    ])
+    result = extract_signals(msgs, "chat")
+    assert "correction_chain" not in [s.name for s in result.signals]
+
+
+def test_correction_chain_evidence_quotes_flagged_turns():
+    msgs = _alternating([
+        "no, that's not the file I meant",
+        "still broken?",
+        "you didn't update the config, redo it",
+    ])
+    result = extract_signals(msgs, "coding")
+    sigs = [s for s in result.signals if s.name == "correction_chain"]
+    assert len(sigs) == 1
+    assert any("that's not the file" in ev for ev in sigs[0].evidence)
+    assert any("redo it" in ev for ev in sigs[0].evidence)
+    assert sigs[0].penalty == 12
+    assert sigs[0].severity == "warning"
+    assert sigs[0].target == "user"
+
+
+def test_correction_chain_regression_raw_adjacency_still_fires():
+    """Old-shape anomaly (3 raw-consecutive user rows, no reply between)
+    still fires under the user-turn-space construct."""
+    msgs = [
+        {"role": "user", "content": "build a search feature"},
+        {"role": "assistant", "content": "here's the code"},
+        {"role": "user", "content": "no, that's wrong"},
+        {"role": "user", "content": "no, still not right"},
+        {"role": "user", "content": "no, that's not what I meant"},
+        {"role": "assistant", "content": "reverting now"},
+    ]
+    result = extract_signals(msgs, "coding")
+    assert "correction_chain" in [s.name for s in result.signals]
+
+
 # ─── Frustration ──────────────────────────────────────────────────────────────
 
 def test_frustration_detected_in_multiple_turns():
@@ -218,6 +319,112 @@ def test_goal_drift_detected_in_coding():
     result = extract_signals(msgs, "coding")
     names = [s.name for s in result.signals]
     assert "goal_drift" in names, "multiple direction changes in coding must fire"
+
+
+# ─── Premature Stop (ADR 0018: claim-tail + continuation) ────────────────────
+
+def test_premature_stop_claim_tail_plus_continuation():
+    msgs = [
+        {"role": "user", "content": "write the exporter for data.csv"},
+        {"role": "assistant", "content": "working on the exporter now"},
+        {"role": "user", "content": "also handle the json branch"},
+        {"role": "assistant", "content": "The exporter handles csv and json, all set"},
+        {"role": "user", "content": "continue, add the tests as well"},
+        {"role": "assistant", "content": "Added tests for both branches"},
+    ]
+    result = extract_signals(msgs, "coding")
+    sigs = [s for s in result.signals if s.name == "premature_stop"]
+    assert len(sigs) == 1, "claim in turn tail + continuation in 1 turn -> fires"
+    assert any("all set" in ev for ev in sigs[0].evidence)
+    assert any("continue, add the tests" in ev for ev in sigs[0].evidence)
+    assert sigs[0].penalty == 10
+    assert sigs[0].severity == "warning"
+    assert sigs[0].target == "agent"
+
+
+def test_premature_stop_claim_outside_tail_not_fired():
+    """'done' far from the turn end is mid-prose, not a closing claim."""
+    filler = (
+        " the parser now reads config files correctly, the tokenizer keeps "
+        "its fast path, and the cache layer stays untouched through the run,"
+    ) * 3
+    msgs = [
+        {"role": "user", "content": "explain the parser internals"},
+        {"role": "assistant", "content": "the old spike is done, I will not touch it again." + filler},
+        {"role": "user", "content": "continue with the tokenizer section"},
+        {"role": "assistant", "content": "next part" + filler},
+        {"role": "user", "content": "ok thanks for the overview breakdown"},
+    ]
+    result = extract_signals(msgs, "coding")
+    assert "premature_stop" not in [s.name for s in result.signals]
+
+
+def test_premature_stop_without_continuation_not_fired():
+    """A completion claim nobody overrides is not a premature stop."""
+    msgs = [
+        {"role": "user", "content": "write the exporter for data.csv"},
+        {"role": "assistant", "content": "working on it now"},
+        {"role": "user", "content": "also handle json"},
+        {"role": "assistant", "content": "Done, both formats are handled"},
+        {"role": "user", "content": "nice, commit it please"},
+    ]
+    result = extract_signals(msgs, "coding")
+    assert "premature_stop" not in [s.name for s in result.signals]
+
+
+def test_premature_stop_continuation_outside_window_not_fired():
+    """Continuation arriving 3 user turns after the claim misses the window."""
+    msgs = [
+        {"role": "user", "content": "write the exporter"},
+        {"role": "assistant", "content": "Done, exporter is ready"},
+        {"role": "user", "content": "add a cli flag for it"},
+        {"role": "assistant", "content": "added the flag"},
+        {"role": "user", "content": "update the docs"},
+        {"role": "assistant", "content": "docs updated"},
+        {"role": "user", "content": "continue with packaging too"},
+    ]
+    result = extract_signals(msgs, "coding")
+    assert "premature_stop" not in [s.name for s in result.signals]
+
+
+def test_premature_stop_word_boundaries_hold():
+    """'abandoned' must not match 'done'; 'incomplete' must not match 'complete'."""
+    msgs = [
+        {"role": "user", "content": "what happened to the migration"},
+        {"role": "assistant", "content": "the old table was simply abandoned mid-migration"},
+        {"role": "user", "content": "go on with the next module then"},
+        {"role": "assistant", "content": "moving to the next module now"},
+        {"role": "user", "content": "thanks, that covers it"},
+    ]
+    result = extract_signals(msgs, "coding")
+    assert "premature_stop" not in [s.name for s in result.signals]
+
+
+def test_premature_stop_legacy_phrase_still_fires():
+    """Legacy stop-offer phrasing survives as a tail claim when the user
+    actually pushes back (old shape without continuation stays silent)."""
+    msgs = [
+        {"role": "user", "content": "draft the release notes"},
+        {"role": "assistant", "content": "notes drafted for the api changes"},
+        {"role": "user", "content": "and the bug fixes"},
+        {"role": "assistant", "content": "Added the fixes section. Should I continue with the appendix?"},
+        {"role": "user", "content": "yes, continue with the appendix"},
+    ]
+    result = extract_signals(msgs, "coding")
+    assert "premature_stop" in [s.name for s in result.signals]
+
+
+def test_premature_stop_not_fired_on_brainstorm_or_research():
+    msgs = [
+        {"role": "user", "content": "brainstorm feature directions for the app"},
+        {"role": "assistant", "content": "here are three directions"},
+        {"role": "user", "content": "and more options"},
+        {"role": "assistant", "content": "also possible: a plugin system, all set as ideas"},
+        {"role": "user", "content": "continue listing possibilities"},
+    ]
+    for tt in ("brainstorm", "research"):
+        result = extract_signals(msgs, tt)
+        assert "premature_stop" not in [s.name for s in result.signals], tt
 
 
 # ─── Tool Repetition ──────────────────────────────────────────────────────────

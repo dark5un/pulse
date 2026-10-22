@@ -67,16 +67,17 @@ def session_correcting(sid: str, extra: str = "") -> dict[str, Any]:
 
 
 def session_stopping(sid: str) -> dict[str, Any]:
-    """Assistant stop-offer phrasing -> premature_stop positive (chat is gradeable)."""
+    """Completion claim in an assistant turn tail + a user continuation
+    turn -> premature_stop positive (ADR 0018 construct)."""
     return {
         "id": sid,
         "messages": _msgs(
             ("user", "Summarize the quarterly report at reports/q3.md for the board deck"),
             ("assistant", "Here is the summary for the board deck."),
             ("user", "Add the revenue table too, in reports/q3_revenue.csv"),
-            ("assistant", "Added the table from q3_revenue.csv."),
-            ("user", "And the risk section"),
-            ("assistant", "Done. Should I continue with the appendix, or is this a good stopping point?"),
+            ("assistant", "Added the revenue table from q3_revenue.csv. The deck is done"),
+            ("user", "continue with the risk section as well"),
+            ("assistant", "Added the risk section."),
         ),
     }
 
