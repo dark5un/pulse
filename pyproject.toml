@@ -19,3 +19,7 @@ dev = ["pytest>=8", "pyright>=1.1", "ruff>=0.9"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+# uv sync runs this project in non-package mode (no build-system), so the
+# project itself is never installed into the venv; pytest must resolve
+# `import pulse` from src/ directly (pre-existing CI collection failure).
+pythonpath = ["src"]

@@ -11,9 +11,12 @@
 """
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 
 def test_requires_python_floor_is_311():
@@ -25,8 +28,19 @@ def test_requires_python_floor_is_311():
 
 
 def test_package_compiles_under_311():
+    """3.11 floor check: run compileall under a real 3.11 interpreter.
+
+    Portable discovery (the old /var/home/panos path broke every other
+    machine AND GitHub CI): explicit PULSE_PY311 override, else
+    `python3.11` on PATH, else the current interpreter when it *is* 3.11
+    (the CI matrix case); skip only when no 3.11 exists anywhere.
+    """
+    py311 = os.environ.get("PULSE_PY311") or shutil.which("python3.11")
+    if not py311 and sys.version_info[:2] == (3, 11):
+        py311 = sys.executable
+    if py311 is None:
+        pytest.skip("no python3.11 interpreter available")
     repo = Path(__file__).parents[1]
-    py311 = "/var/home/panos/.distrobox/homes/ai/.local/bin/python3.11"
     proc = subprocess.run(
         [py311, "-m", "compileall", "-q", str(repo / "src"), str(repo / "tests")],
         capture_output=True, text=True, check=False,
