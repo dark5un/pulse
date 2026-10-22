@@ -344,9 +344,8 @@ def main(argv: list[str] | None = None) -> int:
     _flush_cache(cache_path, cache)
     wall = time.monotonic() - t_run
 
-    all_strata = [s for s in STRATA if s in strata_seen] + [
-        s for s in strata_seen if s not in STRATA
-    ]
+    # Every expected cell prints, even an absent stratum (n=0 refusal).
+    all_strata = list(STRATA) + [s for s in strata_seen if s not in STRATA]
     # Every expected cell prints, even an absent stratum (n=0 refusal).
     cells: list[CellStats] = []
     for pair in PAIR_SIGNAL:
@@ -355,7 +354,7 @@ def main(argv: list[str] | None = None) -> int:
 
     pooled = {
         pair: pooled_descriptive(
-            [r for st in all_strata for r in rows[st][pair]]
+            [r for st in all_strata for r in rows.get(st, {}).get(pair, [])]
         )
         for pair in PAIR_SIGNAL
     }

@@ -442,5 +442,20 @@ def test_both_strata_cells_print(monkeypatch, tmp_path, capsys):
     assert "gate: NOT EVALUATED" in out
 
 
+def test_absent_stratum_still_prints_refusal_cells(monkeypatch, tmp_path, capsys):
+    """A core-only manifest must STILL print all 4 cells: the enriched
+    pair cells refuse with 'no items in stratum' (G4 expectation)."""
+    _d, man = _corpus(tmp_path, [(f"s{i}", {}, "core") for i in range(3)])
+    cli, _ = _stubbed_cli(monkeypatch, [ALL_NO] * 3)
+    rc = cli.main(["--manifest", str(man), "--cache", str(tmp_path / "c.json"), "--json"])
+    assert rc == 2
+    out = json.loads(capsys.readouterr().out)
+    assert len(out["cells"]) == 4
+    for cell in out["cells"]:
+        if cell["stratum"] == "enriched":
+            assert cell["n_items"] == 0 and cell["kappa"] is None
+            assert "no items in stratum" in cell["refusal"]
+
+
 if __name__ == "__main__":  # convenience
     raise SystemExit(pytest.main([__file__, "-q"]))
