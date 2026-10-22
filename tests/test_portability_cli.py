@@ -1,9 +1,11 @@
-"""Tests for `pulse portability` CLI (Phase E2)."""
+"""Tests for `pulse portability` CLI (Phase E2). Hermetic: seeded fixtures only."""
 
 import json
 import subprocess
 import sys
 from pathlib import Path
+
+from conftest import pulse_subprocess_env, write_unroll_trace
 
 
 def _write_sidecar(d: Path, name: str, model: str, skills: list, deadweight: list):
@@ -38,6 +40,7 @@ def test_portability_table_and_json(tmp_path):
         capture_output=True,
         text=True,
         check=False,
+        env=pulse_subprocess_env(),
     )
     assert r.returncode == 0, r.stderr
     assert "portable" in r.stdout and "model_specific" in r.stdout
@@ -46,18 +49,18 @@ def test_portability_table_and_json(tmp_path):
         capture_output=True,
         text=True,
         check=False,
+        env=pulse_subprocess_env(),
     )
     out = json.loads(r2.stdout)
     assert out["skill-a"]["verdict"] == "portable"
     assert out["skill-b"]["verdict"] == "model_specific"
 
 
-def test_sidecar_writer_includes_active_skills():
+def test_sidecar_writer_includes_active_skills(tmp_path):
     from pulse.trace_score import score_trace_file
 
-    corpus = sorted(Path("corpus").glob("*.py"))
-    assert corpus
-    rec = score_trace_file(corpus[0])
+    trace = write_unroll_trace(tmp_path, "active-skills-check")
+    rec = score_trace_file(trace)
     assert "active_skills" in rec and isinstance(rec["active_skills"], list)
 
 
@@ -69,14 +72,12 @@ def test_empty_portability_message(tmp_path):
 
 
 def test_portability_live_fallback_no_sidecar(tmp_path):
-    import shutil
-
-    src = next(iter(Path("corpus").glob("*.py")))
-    shutil.copy(src, tmp_path / src.name)
+    write_unroll_trace(tmp_path, "live-fallback")  # no sidecar: live scoring path
     r = subprocess.run(
         [sys.executable, "-m", "pulse", "portability", "--corpus", str(tmp_path)],
         capture_output=True,
         text=True,
         check=False,
+        env=pulse_subprocess_env(),
     )
     assert r.returncode == 0, r.stderr

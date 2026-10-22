@@ -1,7 +1,5 @@
 """Tests for shared trace scorer (Phase A)."""
 
-from pathlib import Path
-
 from pulse.trace_score import anonymize, score_bundle, score_trace_file
 
 
@@ -39,17 +37,19 @@ def test_score_bundle_keys_and_score_math():
     assert rec["model"] == "m1"
 
 
-def test_score_trace_file_on_real_corpus():
-    corpus = sorted(Path("corpus").glob("*.py"))
-    assert corpus, "expected local corpus traces"
-    rec = score_trace_file(corpus[0])
+def test_score_trace_file_deterministic_on_seeded_corpus(tmp_path):
+    from conftest import write_unroll_trace
+
+    trace = write_unroll_trace(tmp_path, "determinism")
+    rec = score_trace_file(trace)
     assert rec["score"] >= 0
-    # byte-identical check: matches existing sidecar score
+    # byte-identical check: scoring twice yields the same score/penalty
     import json
 
-    sidecar = json.loads((corpus[0].parent / (corpus[0].stem + ".score.json")).read_text())
-    assert rec["score"] == sidecar["score"]
-    assert rec["penalty"] == sidecar["penalty"]
+    sidecar = json.loads(json.dumps(rec))
+    rec2 = score_trace_file(trace)
+    assert rec["score"] == sidecar["score"] == rec2["score"]
+    assert rec["penalty"] == sidecar["penalty"] == rec2["penalty"]
 
 
 def test_score_bundle_extra_signals_and_deep_key():

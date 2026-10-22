@@ -25,7 +25,12 @@ def _load_plugin(name="pulse_plugin_integration"):
 
     pkgdir = Path(tempfile.mkdtemp(prefix=f"{name}-")) / name
     pkgdir.mkdir()
-    for src_file in SRC.glob("*.py"):
+    # install.sh entry semantics: plugin.py becomes __init__.py. Skip the
+    # package's own __init__.py — a glob-order race let it overwrite the
+    # entry copy on some filesystems (register() vanished; CI-only failure).
+    for src_file in sorted(SRC.glob("*.py")):
+        if src_file.name == "__init__.py":
+            continue
         dest = pkgdir / src_file.name
         if src_file.name == "plugin.py":
             dest = pkgdir / "__init__.py"
