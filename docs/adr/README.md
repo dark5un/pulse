@@ -19,3 +19,5 @@ Consequences per Michael Nygard's form.
 | 0011 | Conversation data is private by default; aggregates only in public | Accepted |
 | 0012 | Pair polarity: judge finding=yes <-> detector-present; absent = abstain | Accepted |
 | 0013 | Judge budget mechanics: resolution order, /v1/models probe, explicit fallbacks | Accepted |
+| 0014 | `pulse agreement` v2 consumes the run manifest; unroll-trace gate path replaced | Accepted |
+| 0015 | Tri-state gate verdict; per-cell refusal rules and bootstrap CIs | Accepted |
