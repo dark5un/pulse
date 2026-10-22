@@ -19,6 +19,7 @@ def test_stub_judge_repeats_last():
 def test_resolve_api_key_env_chain(monkeypatch):
     from pulse.judge import resolve_api_key
 
+    monkeypatch.delenv("PULSE_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("HERMES_API_KEY", raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
