@@ -11,6 +11,28 @@ from dataclasses import dataclass
 
 JUDGE_MODEL_DEFAULT = "gpt-4o-mini"
 
+#: Per-call HTTP timeout for judge requests. The default (120 s) matches the
+#: hosted-judge era; the model-derived prompt budget (ADR 0010/0013) lets
+#: local-GPU runs send much larger prompts, so the operator pins the
+#: timeout explicitly for big-context endpoints via
+#: PULSE_JUDGE_TIMEOUT_S (seconds, > 0; G4 measurement: a 1M-context
+#: local judge needs minutes per call — the client must not time out
+#: before the endpoint answers; ADR 0016).
+JUDGE_TIMEOUT_DEFAULT_S = 120.0
+
+
+def judge_timeout_s() -> float:
+    raw = os.environ.get("PULSE_JUDGE_TIMEOUT_S", "").strip()
+    if not raw:
+        return JUDGE_TIMEOUT_DEFAULT_S
+    try:
+        val = float(raw)
+    except ValueError as e:
+        raise RuntimeError(f"PULSE_JUDGE_TIMEOUT_S={raw!r} is not a number") from e
+    if val <= 0:
+        raise RuntimeError("PULSE_JUDGE_TIMEOUT_S must be > 0 seconds")
+    return val
+
 #: Metadata keys different OpenAI-compatible local servers use to expose
 #: the model's context window through the read-only /v1/models listing
 #: (llama.cpp --props, llama-server, Ollama shims, vLLM). First hit wins.
@@ -142,7 +164,7 @@ class OpenAIJudge(JudgeBackend):
             },
         )
         try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
+            with urllib.request.urlopen(req, timeout=judge_timeout_s()) as resp:
                 payload = json.load(resp)
         except urllib.error.HTTPError as e:
             try:
@@ -189,10 +211,12 @@ class StubJudge(JudgeBackend):
 
 __all__ = [
     "JUDGE_MODEL_DEFAULT",
+    "JUDGE_TIMEOUT_DEFAULT_S",
     "JudgeBackend",
     "JudgeContextOverflow",
     "JudgeResult",
     "OpenAIJudge",
     "StubJudge",
+    "judge_timeout_s",
     "resolve_api_key",
 ]

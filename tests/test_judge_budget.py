@@ -303,6 +303,67 @@ def test_agreement_cli_explicit_context_source(monkeypatch, tmp_path, capsys, no
     assert "judge prompt budget: 59392 chars (source=explicit" in capsys.readouterr().err
 
 
+# ── judge HTTP timeout is an operator knob (ADR 0016, G4 blocker) ────────
+
+
+def test_judge_timeout_default_and_override(monkeypatch):
+    from pulse.judge import JUDGE_TIMEOUT_DEFAULT_S, judge_timeout_s
+
+    monkeypatch.delenv("PULSE_JUDGE_TIMEOUT_S", raising=False)
+    assert judge_timeout_s() == JUDGE_TIMEOUT_DEFAULT_S == 120.0
+    monkeypatch.setenv("PULSE_JUDGE_TIMEOUT_S", "900")
+    assert judge_timeout_s() == 900.0
+    for bad in ("0", "-3", "abc"):
+        monkeypatch.setenv("PULSE_JUDGE_TIMEOUT_S", bad)
+        with pytest.raises(RuntimeError):
+            judge_timeout_s()
+
+
+def test_openaijudge_times_out_loudly_on_slow_endpoint(monkeypatch):
+    """A slow endpoint must surface as JudgeCallError (M0 contract) — the
+    timeout is honored from the env, never silently swallowed."""
+    import time as _t
+
+    from pulse.judge import OpenAIJudge
+    from pulse.signals_deep import JudgeCallError, PromptBudget, run_judge
+
+    class SlowHandler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length", "0"))
+            self.rfile.read(length)
+            _t.sleep(2)
+            raw = b"{}"
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+        def log_message(self, *a):
+            pass
+
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), SlowHandler)
+    th = threading.Thread(target=srv.serve_forever, daemon=True)
+    th.start()
+    try:
+        monkeypatch.setenv("PULSE_JUDGE_TIMEOUT_S", "0.3")
+        monkeypatch.setenv("PULSE_API_KEY", "test-key")
+        judge = OpenAIJudge(
+            model="slow", base_url=f"http://127.0.0.1:{srv.server_address[1]}"
+        )
+        with pytest.raises(JudgeCallError) as ei:
+            run_judge(
+                [{"role": "user", "content": "hi there friend please"}],
+                judge,
+                budget=PromptBudget(50_000, 16384, "explicit"),
+            )
+        assert "timed out" in str(ei.value).lower()
+    finally:
+        srv.shutdown()
+        srv.server_close()
+        th.join(timeout=5)
+
+
 def test_agreement_cli_uses_manifest_context_window(monkeypatch, tmp_path, capsys, no_budget_env):
     """Manifest judge.context_window acts as the explicit pin (ADR 0013):
     no CLI flag, no env — the run derives from the manifest instead."""
